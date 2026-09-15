@@ -1,0 +1,2591 @@
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
+import { Grid3X3, User, X, Users, BriefcaseBusiness } from 'lucide-react'
+import toast from 'react-hot-toast'
+import io from 'socket.io-client'
+import { SOCKET_URL, ICE_SERVERS } from '../utils/constants'
+import { useSettings } from '../hooks/useSettings'
+import { useMediaConstraints } from '../hooks/useMediaConstraints'
+import { BackgroundBlurProcessor, SimpleBackgroundBlurProcessor } from '../utils/backgroundBlurSegmentation'
+import { createNoiseSuppressor } from '../utils/noiseSuppression'
+import branding from '../config/branding'
+import api from '../utils/api'
+import SettingsPanel from './meeting/components/SettingsPanel'
+import VideoGrid from './meeting/VideoGrid'
+import MeetingSidebar from './meeting/MeetingSidebar'
+import MeetingControls from './meeting/MeetingControls'
+import JoinRequestPopup from './meeting/JoinRequestPopup'
+import { playUserJoined, playYouJoined, playUserLeft, playScreenShareStart, playScreenShareStop, playJoinRequest } from '../utils/sounds'
+
+const MeetingPro = () => {
+  const { roomId } = useParams()
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // Only allow access if user came through PreJoin (navigation state)
+  // On refresh, user stays in meeting (state is lost but that's OK)
+  const fromPreJoin = location.state?.fromPreJoin
+  
+  useEffect(() => {
+    // If no navigation state and this is the first render, redirect to PreJoin
+    if (!fromPreJoin && !location.state) {
+      console.log('Direct access detected - redirecting to PreJoin')
+      navigate(`/room/${roomId}`, { replace: true })
+    }
+  }, [fromPreJoin, location.state, roomId, navigate])
+  
+  // Get media + name preferences from sessionStorage (set in PreJoin)
+  const mediaPreferences = JSON.parse(sessionStorage.getItem('meetingPreferences') || '{"audio":true,"video":true}')
+
+  // Guest identity - no accounts. Name comes from PreJoin; the id is a
+  // per-tab id (survives refresh via sessionStorage) so the server can spot
+  // the same guest reconnecting from another tab/device.
+  const userName = mediaPreferences.name || 'Guest'
+  const userId = (() => {
+    let id = sessionStorage.getItem('rumo_guest_id')
+    if (!id) {
+      id = crypto.randomUUID()
+      sessionStorage.setItem('rumo_guest_id', id)
+    }
+    return id
+  })()
+  
+  // Core states
+  const [socket, setSocket] = useState(null)
+  const [localStream, setLocalStream] = useState(null)
+  const [screenStream, setScreenStream] = useState(null)
+  const [remoteStreams, setRemoteStreams] = useState(new Map())
+  const [remoteScreenStreams, setRemoteScreenStreams] = useState(new Map())
+  const [participants, setParticipants] = useState([])
+  const [messages, setMessages] = useState([])
+  const [newMessage, setNewMessage] = useState('')
+  const [roomInfo, setRoomInfo] = useState(null)
+  const [isHost, setIsHost] = useState(false)
+  const [userRole, setUserRole] = useState(null) // 'co-host' or null
+  const [joinRequests, setJoinRequests] = useState([]) // Waiting participants
+  const [isWaiting, setIsWaiting] = useState(false) // Am I waiting for approval?
+
+  // Media states - use preferences from sessionStorage
+  const [audioEnabled, setAudioEnabled] = useState(mediaPreferences.audio !== false)
+  const [videoEnabled, setVideoEnabled] = useState(mediaPreferences.video !== false)
+  const [screenSharing, setScreenSharing] = useState(false)
+  const [facingMode, setFacingMode] = useState('user') // 'user' = front, 'environment' = back
+
+  // UI states
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 768)
+  const [activeTab, setActiveTab] = useState('participants')
+  const [viewMode, setViewMode] = useState('grid') // 'grid', 'speaker', 'interview'
+  const [showControls, setShowControls] = useState(true)
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+  const [showScreenShareDropdown, setShowScreenShareDropdown] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [pinnedVideo, setPinnedVideo] = useState(null)
+  const [debugLogs, setDebugLogs] = useState([])
+  const [showDebugPanel, setShowDebugPanel] = useState(false)
+  const [localStreamVersion, setLocalStreamVersion] = useState(0) // Force video re-render
+  const [remoteStreamVersions, setRemoteStreamVersions] = useState(new Map()) // Track remote stream versions for re-render
+  const [isPageVisible, setIsPageVisible] = useState(true)
+  const [wakeLock, setWakeLock] = useState(null)
+
+  // Settings
+  const { settings, updateSetting, resetSettings } = useSettings()
+  const { getConstraints } = useMediaConstraints(settings)
+
+  // Refs
+  const peerConnections = useRef(new Map())
+  const socketUserId = useRef(userId)
+  const controlsTimeoutRef = useRef()
+  const peerStreamCount = useRef(new Map()) // Track number of video streams per peer
+  const localStreamRef = useRef(null)
+  const screenStreamRef = useRef(null)
+  const userNameRef = useRef(userName)
+  const isHostRef = useRef(isHost)
+  const blurProcessorRef = useRef(null)
+  const originalVideoTrackRef = useRef(null) // Store original video track
+  const noiseSuppressorRef = useRef(null) // Noise suppression processor
+  const originalAudioTrackRef = useRef(null) // Store original audio track
+  const isInitialNoiseSuppressionMount = useRef(true) // Track initial mount for noise suppression
+  const isFlippingCamera = useRef(false) // Prevent multiple simultaneous flips
+  
+  // Debug log helper for mobile
+  const addDebugLog = useCallback((message, type = 'info') => {
+    const timestamp = new Date().toLocaleTimeString()
+    setDebugLogs(prev => [...prev.slice(-50), { timestamp, message, type }]) // Keep last 50 logs
+    console.log(`[Debug ${type.toUpperCase()}]`, message)
+  }, [])
+  
+  // Update refs when values change
+  useEffect(() => {
+    userNameRef.current = userName
+    isHostRef.current = isHost
+  }, [userName, isHost])
+
+  useEffect(() => {
+    setViewMode(settings.layout || 'grid')
+  }, [settings.layout])
+
+  // Fetch room info before connecting the socket. There's no account system
+  // to verify host identity against, so the initial host guess here is just
+  // "was this tab confirmed as host earlier in this room" (see the
+  // 'host-status'/'new-host' socket handlers below, which are the real
+  // source of truth and update this after the server confirms it).
+  const [roomInfoLoaded, setRoomInfoLoaded] = useState(false)
+
+  useEffect(() => {
+    const fetchRoomInfo = async () => {
+      try {
+        const response = await api.get(`/api/rooms/${roomId}`)
+        setRoomInfo(response.data.data)
+        setIsHost(sessionStorage.getItem(`rumo_host_${roomId}`) === 'true')
+        setRoomInfoLoaded(true)
+      } catch (error) {
+        console.error('Failed to fetch room info:', error)
+        setRoomInfoLoaded(true) // Still allow connection even if fetch fails
+      }
+    }
+
+    if (roomId) {
+      fetchRoomInfo()
+    }
+  }, [roomId])
+
+  // Debug: Log participants state changes
+  useEffect(() => {
+
+  }, [participants])
+
+  // Initialize media - only once on mount
+  const initializeMedia = useCallback(async () => {
+    try {
+      // Get quality-based constraints (includes noise suppression setting)
+      const constraints = getConstraints({ 
+        video: true, 
+        audio: true,
+        facingMode // Use front camera by default on mobile
+      })
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      
+      // Process audio with advanced noise suppression if enabled
+      let finalStream = stream
+      const audioTrack = stream.getAudioTracks()[0]
+      if (audioTrack && settings.noiseSuppression) {
+        try {
+          // Store original audio track
+          originalAudioTrackRef.current = audioTrack.clone()
+          
+          // Apply advanced noise gate
+          const { stream: processedStream, processor } = await createNoiseSuppressor(
+            new MediaStream([audioTrack]),
+            true // Use advanced noise gate
+          )
+          
+          const processedAudioTrack = processedStream.getAudioTracks()[0]
+          if (processedAudioTrack) {
+            // Replace audio track with noise-gated version
+            finalStream.removeTrack(audioTrack)
+            finalStream.addTrack(processedAudioTrack)
+            noiseSuppressorRef.current = processor
+          }
+        } catch (noiseError) {
+          console.error('Noise gate failed:', noiseError)
+          // Continue with original audio track
+          if (audioTrack) {
+            originalAudioTrackRef.current = audioTrack.clone()
+          }
+        }
+      } else if (audioTrack) {
+        // No noise suppression - just store original
+        originalAudioTrackRef.current = audioTrack.clone()
+      }
+      
+      // Store original video track before any processing
+      const videoTrack = finalStream.getVideoTracks()[0]
+      if (videoTrack) {
+        originalVideoTrackRef.current = videoTrack.clone()
+      }
+      
+      // Apply background blur if enabled
+      if (settings.backgroundBlur && videoTrack) {
+        try {
+          // Create video element for blur processor
+          const videoElement = document.createElement('video')
+          videoElement.srcObject = finalStream
+          videoElement.autoplay = true
+          videoElement.muted = true
+          await videoElement.play()
+          
+          // Try BackgroundBlurProcessor first (with person segmentation)
+          try {
+            if (!blurProcessorRef.current) {
+              blurProcessorRef.current = new BackgroundBlurProcessor(15)
+              await blurProcessorRef.current.init()
+              toast.success('Background blur with person detection enabled')
+            }
+          } catch (mlError) {
+            console.warn('ML-based blur failed, using simple blur:', mlError)
+            // Fall back to simple blur
+            if (blurProcessorRef.current) {
+              blurProcessorRef.current.stop()
+            }
+            blurProcessorRef.current = new SimpleBackgroundBlurProcessor(15)
+            toast.success('Background blur enabled (simple mode)')
+          }
+          
+          // Start blur processing
+          const blurredStream = await blurProcessorRef.current.start(videoElement)
+          
+          // Replace video track with blurred version
+          const blurredVideoTrack = blurredStream.getVideoTracks()[0]
+          finalStream.removeTrack(videoTrack)
+          finalStream.addTrack(blurredVideoTrack)
+          
+          // Stop original track since we're using the blurred one
+          videoTrack.stop()
+        } catch (blurError) {
+          console.error('Background blur failed:', blurError)
+          toast.error('Background blur failed, using regular video')
+        }
+      }
+      
+      setLocalStream(finalStream)
+      localStreamRef.current = finalStream
+      return finalStream
+    } catch (error) {
+      console.error('Media access failed:', error)
+      
+      // Try fallback constraints for mobile browsers
+      try {
+        console.log('Trying fallback constraints for mobile...')
+        const fallbackConstraints = {
+          video: {
+            facingMode: facingMode,
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          },
+          audio: true
+        }
+        
+        const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints)
+        setLocalStream(fallbackStream)
+        localStreamRef.current = fallbackStream
+        toast.success('Camera/microphone access granted (basic mode)')
+        return fallbackStream
+      } catch (fallbackError) {
+        console.error('Fallback media access also failed:', fallbackError)
+        toast.error('Camera/microphone access failed. Please check permissions.')
+        return null
+      }
+    }
+  }, [facingMode, settings.backgroundBlur, settings.videoQuality, settings.noiseSuppression, getConstraints])
+
+  // Socket connection and event handlers - wait for room info
+  useEffect(() => {
+    if (!roomInfoLoaded) return // Wait for room info to load first
+    
+    let mounted = true
+    let currentSocket = null
+    let hasJoined = false
+    
+    const initializeConnection = async () => {
+      if (!mounted || hasJoined) return
+      hasJoined = true
+      
+      currentSocket = io(SOCKET_URL)
+      setSocket(currentSocket)
+
+      const stream = await initializeMedia()
+      if (!mounted) return
+
+      // Send different event based on host status to avoid waiting room
+      if (isHostRef.current) {
+        currentSocket.emit('host-rejoin', {
+          roomId,
+          userId: socketUserId.current,
+          userName: userNameRef.current,
+          audioEnabled,
+          videoEnabled,
+          preserveRoomSettings: true // Tell backend to keep existing room settings
+        })
+      } else {
+        currentSocket.emit('request-join', {
+          roomId,
+          userId: socketUserId.current,
+          userName: userNameRef.current,
+          isHost: false,
+          audioEnabled,
+          videoEnabled
+        })
+      }
+
+      currentSocket.on('room-users', (users) => {
+        if (!mounted) return
+
+        playYouJoined()
+        setParticipants(users)
+        if (users.length > 0) {
+          setTimeout(() => {
+            if (!mounted || !stream) return
+            users.forEach(user => {
+
+              createPeerConnection(user.socketId, stream, currentSocket)
+            })
+          }, 1000)
+        }
+      })
+
+      currentSocket.on('user-joined', (user) => {
+        if (!mounted) return
+
+        playUserJoined()
+        setParticipants(prev => prev.find(p => p.socketId === user.socketId) ? prev : [...prev, user])
+        setTimeout(() => {
+          if (!mounted || !stream) return
+
+          createPeerConnection(user.socketId, stream, currentSocket)
+        }, 800)
+        toast.success(`${user.name} joined`)
+      })
+
+      currentSocket.on('user-audio-toggle', ({ socketId, enabled }) => {
+        if (!mounted) return
+
+        setParticipants(prev => {
+          const updated = prev.map(p => p.socketId === socketId ? { ...p, audioEnabled: enabled } : p)
+
+          return updated
+        })
+      })
+
+      currentSocket.on('user-video-toggle', ({ socketId, enabled }) => {
+        if (!mounted) return
+
+        setParticipants(prev => {
+          const updated = prev.map(p => p.socketId === socketId ? { ...p, videoEnabled: enabled } : p)
+
+          return updated
+        })
+      })
+
+      currentSocket.on('user-left', ({ userId, socketId }) => {
+        if (!mounted) return
+
+        playUserLeft()
+        setParticipants(prev => prev.filter(p => p.id !== userId))
+        setRemoteStreams(prev => {
+          const newMap = new Map(prev)
+          newMap.delete(socketId || userId)
+          return newMap
+        })
+        setRemoteScreenStreams(prev => {
+          const newMap = new Map(prev)
+          // Remove all screen shares from this user (they might have multiple)
+          Array.from(newMap.keys()).forEach(key => {
+            if (key.startsWith((socketId || userId) + '-screen')) {
+              newMap.delete(key)
+            }
+          })
+          return newMap
+        })
+        peerStreamCount.current.delete(socketId || userId)
+        const pc = peerConnections.current.get(socketId || userId)
+        if (pc) {
+          pc.close()
+          peerConnections.current.delete(socketId || userId)
+        }
+      })
+
+      currentSocket.on('offer', async ({ sender, offer }) => {
+        if (!mounted) return
+        let pc = peerConnections.current.get(sender)
+        if (!pc) {
+          pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+          
+          if (stream) stream.getTracks().forEach(track => pc.addTrack(track, stream))
+          
+      pc.ontrack = (event) => {
+        addDebugLog(`[RECEIVER] ontrack event - kind: ${event.track.kind}, id: ${event.track.id}, label: ${event.track.label}, readyState: ${event.track.readyState}, enabled: ${event.track.enabled}, muted: ${event.track.muted}`, 'info')
+        
+        // CRITICAL CHECK: Warn if receiving a muted video track
+        if (event.track.kind === 'video' && event.track.muted) {
+          addDebugLog(`⚠️ WARNING: Received MUTED video track! This will appear frozen!`, 'error')
+        }
+
+        if (event.streams && event.streams[0]) {
+          const stream = event.streams[0]
+          const streamId = stream.id
+          const track = event.track
+          
+          addDebugLog(`[RECEIVER] Stream ID: ${streamId}, tracks: ${stream.getTracks().length}, sender: ${sender?.substring(0, 8)}`, 'info')
+          
+          // Monitor track state changes
+          track.onended = () => {
+            addDebugLog(`[RECEIVER] Track ended - kind: ${track.kind}, id: ${track.id}`, 'warning')
+
+            if (track.kind === 'video') {
+              // Remove the ended screen share stream
+              setRemoteScreenStreams(prev => {
+                const newMap = new Map(prev)
+                const key = sender + '-screen-' + streamId
+                if (newMap.has(key)) {
+                  addDebugLog(`[RECEIVER] Removing screen share stream: ${key}`, 'info')
+                  newMap.delete(key)
+                }
+                return newMap
+              })
+            }
+          }
+          
+          track.onmute = () => {
+            addDebugLog(`[RECEIVER] Track muted - kind: ${track.kind}, id: ${track.id}`, 'warning')
+          }
+          
+          track.onunmute = () => {
+            addDebugLog(`[RECEIVER] Track unmuted - kind: ${track.kind}, id: ${track.id}`, 'success')
+          }
+          
+          // Handle stream removetrack event (when track is removed during renegotiation)
+          stream.onremovetrack = (e) => {
+            addDebugLog(`[RECEIVER] Stream removetrack - kind: ${e.track.kind}, id: ${e.track.id}`, 'warning')
+
+            if (e.track.kind === 'video') {
+              setRemoteScreenStreams(prev => {
+                const newMap = new Map(prev)
+                const key = sender + '-screen-' + streamId
+                if (newMap.has(key)) {
+                  addDebugLog(`[RECEIVER] Removing screen share after removetrack: ${key}`, 'info')
+                  newMap.delete(key)
+                }
+                return newMap
+              })
+            }
+          }
+          
+          stream.onaddtrack = (e) => {
+            addDebugLog(`[RECEIVER] Stream addtrack - kind: ${e.track.kind}, id: ${e.track.id}, label: ${e.track.label}`, 'success')
+          }
+          
+          if (event.track.kind === 'video') {
+            const settings = event.track.getSettings()
+            addDebugLog(`[RECEIVER] Video track settings: ${JSON.stringify({
+              width: settings.width,
+              height: settings.height,
+              facingMode: settings.facingMode,
+              deviceId: settings.deviceId?.substring(0, 20),
+              displaySurface: settings.displaySurface
+            })}`, 'info')
+
+            const isScreenShare = settings.displaySurface === 'monitor' || 
+                                 settings.displaySurface === 'window' || 
+                                 settings.displaySurface === 'browser' ||
+                                 (settings.deviceId && settings.deviceId.startsWith('screen:')) ||
+                                 (settings.width && settings.width > 1280)
+            
+            const currentCount = peerStreamCount.current.get(sender) || 0
+            
+            if (isScreenShare || currentCount > 0) {
+              const key = sender + '-screen-' + streamId
+              addDebugLog(`[RECEIVER] Adding SCREEN SHARE stream: ${key}`, 'success')
+
+              setRemoteScreenStreams(prev => {
+                const newMap = new Map(prev)
+                // Use stream ID to allow multiple screen shares
+                newMap.set(key, stream)
+                return newMap
+              })
+            } else {
+              addDebugLog(`[RECEIVER] Adding CAMERA stream for peer: ${sender?.substring(0, 8)}`, 'success')
+              peerStreamCount.current.set(sender, currentCount + 1)
+              setRemoteStreams(prev => {
+                const newMap = new Map(prev)
+                newMap.set(sender, stream)
+                return newMap
+              })
+            }
+          } else {
+            addDebugLog(`[RECEIVER] Adding AUDIO-ONLY stream for peer: ${sender?.substring(0, 8)}`, 'info')
+            setRemoteStreams(prev => {
+              const newMap = new Map(prev)
+              if (!newMap.has(sender)) {
+                newMap.set(sender, stream)
+              }
+              return newMap
+            })
+          }
+        }
+      }
+          
+          pc.onicecandidate = (event) => {
+            if (event.candidate && mounted) {
+              currentSocket.emit('ice-candidate', { target: sender, candidate: event.candidate })
+            }
+          }
+
+          // Monitor connection state
+          pc.onconnectionstatechange = () => {
+            addDebugLog(`[PEER] Connection state: ${pc.connectionState} for ${sender?.substring(0, 8)}`, 
+              pc.connectionState === 'connected' ? 'success' : 
+              pc.connectionState === 'failed' || pc.connectionState === 'closed' ? 'error' : 'warning')
+
+            if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+              addDebugLog(`[PEER] Cleaning up failed/closed connection: ${sender?.substring(0, 8)}`, 'warning')
+              peerConnections.current.delete(sender)
+              setRemoteStreams(prev => {
+                const newMap = new Map(prev)
+                newMap.delete(sender)
+                return newMap
+              })
+            }
+          }
+          
+          peerConnections.current.set(sender, pc)
+        }
+        
+        try {
+
+          await pc.setRemoteDescription(new RTCSessionDescription(offer))
+
+          // Only clean up removed tracks during renegotiation (not initial connection)
+          // Check if this is a renegotiation by seeing if we already have screen shares from this sender
+          const existingScreenShares = Array.from(remoteScreenStreams.keys()).filter(key => key.startsWith(sender + '-screen-'))
+
+          if (existingScreenShares.length > 0) {
+
+            // This is a renegotiation - check if tracks were removed or ended
+            const transceivers = pc.getTransceivers()
+
+            const activeVideoStreamIds = new Set()
+            
+            // Collect all active video stream IDs from transceivers
+            transceivers.forEach((transceiver, idx) => {
+              if (transceiver.receiver && transceiver.receiver.track) {
+                const track = transceiver.receiver.track
+                const streams = transceiver.receiver.streams
+
+                // Only count as active if:
+                // 1. Track is video
+                // 2. Track is not ended
+                // 3. Transceiver is not stopped or inactive
+                if (track.kind === 'video' && 
+                    track.readyState === 'live' && 
+                    !transceiver.stopped &&
+                    transceiver.direction !== 'inactive' &&
+                    streams && streams.length > 0) {
+                  streams.forEach(stream => {
+                    activeVideoStreamIds.add(stream.id)
+
+                  })
+                }
+              }
+            })
+            
+
+            // Clean up screen shares that are no longer in active video streams
+            setRemoteScreenStreams(prev => {
+              const newMap = new Map(prev)
+              let hasChanges = false
+              
+              existingScreenShares.forEach(key => {
+                const stream = newMap.get(key)
+                if (stream) {
+                  const streamId = stream.id
+                  // Remove if this stream ID is not in the active video streams
+                  if (!activeVideoStreamIds.has(streamId)) {
+                    newMap.delete(key)
+                    hasChanges = true
+                  } else {
+                  }
+                } else {
+
+                }
+              })
+              
+              return hasChanges ? newMap : prev
+            })
+          } else {
+          }
+          
+          const answer = await pc.createAnswer()
+          await pc.setLocalDescription(answer)
+          currentSocket.emit('answer', { target: sender, answer })
+        } catch (error) {
+          console.error('Error handling offer:', error)
+        }
+      })
+
+      currentSocket.on('answer', async ({ sender, answer }) => {
+        if (!mounted) return
+        const pc = peerConnections.current.get(sender)
+        if (pc) {
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(answer))
+          } catch (error) {
+            console.error('Error handling answer:', error)
+          }
+        }
+      })
+
+      currentSocket.on('ice-candidate', async ({ sender, candidate }) => {
+        if (!mounted) return
+        const pc = peerConnections.current.get(sender)
+        if (pc && candidate) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate))
+          } catch (error) {
+            console.error('Error adding ICE candidate:', error)
+          }
+        }
+      })
+
+      currentSocket.on('new-message', (message) => {
+        if (!mounted) return
+        setMessages(prev => [...prev, message])
+      })
+
+      currentSocket.on('force-mute', () => {
+        if (!mounted) return
+        setAudioEnabled(false)
+        if (localStream) localStream.getAudioTracks().forEach(track => track.enabled = false)
+        toast.error('You have been muted by the host')
+      })
+
+      currentSocket.on('force-video-off', ({ by }) => {
+        if (!mounted) return
+        setVideoEnabled(false)
+        if (localStream) localStream.getVideoTracks().forEach(track => track.enabled = false)
+        toast.error(`Your camera was disabled by ${by}`)
+      })
+
+      currentSocket.on('force-stop-screenshare', ({ by }) => {
+        if (!mounted) return
+        if (screenSharing) {
+          stopScreenShare()
+          toast.error(`Your screen share was stopped by ${by}`)
+        }
+      })
+
+      currentSocket.on('role-changed', ({ role, by }) => {
+        if (!mounted) return
+        setUserRole(role) // Update user's role
+        if (role === 'co-host') {
+          toast.success(`You are now a co-host! (by ${by})`, { duration: 4000 })
+        } else {
+          toast(`You are now a participant (by ${by})`, { duration: 4000 })
+        }
+      })
+
+      currentSocket.on('participant-role-updated', ({ socketId, role, name }) => {
+        if (!mounted) return
+        setParticipants(prev => prev.map(p => 
+          p.socketId === socketId ? { ...p, role } : p
+        ))
+        if (role === 'co-host') {
+          toast.success(`${name} is now a co-host`)
+        } else {
+          toast(`${name} is now a participant`)
+        }
+      })
+
+      currentSocket.on('kicked-from-room', ({ by }) => {
+        if (!mounted) return
+        toast.error(`You were removed from the meeting by ${by}`)
+        setTimeout(() => navigate('/'), 2000)
+      })
+
+      currentSocket.on('all-participants-muted', ({ by }) => {
+        if (!mounted) return
+        // Mute the current user if they're not host/co-host
+        if (!isHost && userRole !== 'co-host') {
+          setAudioEnabled(false)
+          if (localStream) localStream.getAudioTracks().forEach(track => track.enabled = false)
+        }
+        toast(`All participants muted by ${by}`)
+      })
+
+      currentSocket.on('chat-status-changed', ({ enabled, by }) => {
+        if (!mounted) return
+        toast(`Chat ${enabled ? 'enabled' : 'disabled'} by ${by}`)
+      })
+
+      currentSocket.on('room-type-changed', ({ isPrivate, by }) => {
+        if (!mounted) return
+        toast(`Room is now ${isPrivate ? 'Private' : 'Public'} (by ${by})`)
+      })
+
+      currentSocket.on('all-cameras-disabled', ({ by }) => {
+        if (!mounted) return
+        // Disable video for current user if they're not host/co-host
+        if (!isHost && userRole !== 'co-host') {
+          setVideoEnabled(false)
+          if (localStream) localStream.getVideoTracks().forEach(track => track.enabled = false)
+        }
+        toast(`All cameras disabled by ${by}`)
+      })
+
+      currentSocket.on('room-settings', (settings) => {
+        if (!mounted) return
+        // Apply room settings received when joining (includes chat disabled state)
+        if (settings.chatEnabled === false) {
+          // Chat is disabled, will be handled by MeetingSidebar
+        }
+        if (settings.allMuted && !isHost && userRole !== 'co-host') {
+          setAudioEnabled(false)
+          if (localStream) localStream.getAudioTracks().forEach(track => track.enabled = false)
+        }
+        if (settings.allCamerasOff && !isHost && userRole !== 'co-host') {
+          setVideoEnabled(false)
+          if (localStream) localStream.getVideoTracks().forEach(track => track.enabled = false)
+        }
+      })
+
+      // Authoritative host status for this tab - there's no account system,
+      // so this (and 'new-host' below) is the only source of truth.
+      currentSocket.on('host-status', ({ isHost: confirmedHost }) => {
+        if (!mounted) return
+        setIsHost(confirmedHost)
+        try {
+          sessionStorage.setItem(`rumo_host_${roomId}`, confirmedHost ? 'true' : 'false')
+        } catch {
+          // ignore - private browsing etc.
+        }
+      })
+
+      currentSocket.on('new-host', ({ socketId, hostName }) => {
+        if (!mounted) return
+        const becameHost = socketId === currentSocket.id
+        if (becameHost) {
+          setIsHost(true)
+          try {
+            sessionStorage.setItem(`rumo_host_${roomId}`, 'true')
+          } catch {
+            // ignore - private browsing etc.
+          }
+        }
+        toast(becameHost ? 'You are now the host' : `${hostName} is now the host`)
+      })
+
+      currentSocket.on('all-screenshares-disabled', ({ by }) => {
+        if (!mounted) return
+        // Stop screen sharing for current user if they're not host/co-host
+        if (!isHost && userRole !== 'co-host' && screenSharing) {
+          stopScreenShare()
+        }
+        toast(`All screen shares stopped by ${by}`)
+      })
+
+      // Private room waiting room events
+      currentSocket.on('waiting-for-approval', ({ message }) => {
+        if (!mounted) return
+        setIsWaiting(true)
+        toast(message || 'Waiting for host approval...', { duration: 5000 })
+      })
+
+      currentSocket.on('join-request', ({ socketId, userName, profilePicture, timestamp }) => {
+        if (!mounted) return
+        // Backend already filters - only hosts/co-hosts receive this event
+        console.log('[JOIN REQUEST] Received:', { socketId, userName, profilePicture, timestamp })
+        
+        // Play notification sound
+        playJoinRequest()
+        
+        setJoinRequests(prev => {
+          // Avoid duplicates
+          if (prev.some(req => req.socketId === socketId)) {
+            return prev
+          }
+          return [...prev, { socketId, userName, profilePicture, timestamp }]
+        })
+        toast(`${userName} wants to join the meeting`)
+      })
+
+      currentSocket.on('join-approved', ({ by }) => {
+        if (!mounted) return
+        setIsWaiting(false)
+        toast.success(`You were approved by ${by}!`)
+        // The backend will call handleJoinRoom now, which triggers room-users event
+      })
+
+      currentSocket.on('join-rejected', ({ by, message }) => {
+        if (!mounted) return
+        setIsWaiting(false)
+        toast.error(message || `Your request was declined by ${by}`)
+        setTimeout(() => navigate('/'), 3000)
+      })
+
+      currentSocket.on('removed-from-room', () => {
+        if (!mounted) return
+        toast.error('You have been removed from the meeting')
+        setTimeout(() => navigate('/'), 2000)
+      })
+
+      currentSocket.on('session-replaced', ({ message }) => {
+        if (!mounted) return
+        toast.error(message || 'You joined from another window/device', { duration: 5000 })
+        setTimeout(() => navigate('/'), 2000)
+      })
+      
+      // Handle unexpected disconnection
+      currentSocket.on('disconnect', (reason) => {
+        if (!mounted) return
+        console.log('Socket disconnected:', reason)
+        addDebugLog(`Disconnected: ${reason}`, 'warning')
+        
+        // Only show error if it wasn't a manual disconnect
+        if (reason !== 'io client disconnect') {
+          toast.error('Connection lost. Your media has been stopped.', { duration: 3000 })
+        }
+      })
+      
+      // Handle connection errors
+      currentSocket.on('connect_error', (error) => {
+        if (!mounted) return
+        console.error('Socket connection error:', error)
+        addDebugLog(`Connection error: ${error.message}`, 'error')
+        toast.error('Failed to connect to meeting server')
+      })
+      
+      // Handle camera flip notifications from other users
+      currentSocket.on('camera-flipped', ({ userId, socketId, facingMode, trackId, timestamp }) => {
+        if (!mounted) return
+        console.log('[CameraFlip] Peer flipped camera:', { userId, socketId, facingMode, trackId, timestamp })
+        addDebugLog(`[RECEIVER] 📹 Peer ${socketId?.substring(0, 8)} flipped camera to ${facingMode}, trackId: ${trackId}`, 'info')
+        
+        // Log current remote stream state
+        const currentStream = remoteStreams.get(socketId)
+        if (currentStream) {
+          const tracks = currentStream.getTracks()
+          addDebugLog(`[RECEIVER] Current remote stream has ${tracks.length} tracks`, 'info')
+          tracks.forEach(track => {
+            addDebugLog(`[RECEIVER] - ${track.kind} track: ${track.id}, readyState: ${track.readyState}, enabled: ${track.enabled}, muted: ${track.muted}`, 'info')
+          })
+        } else {
+          addDebugLog(`[RECEIVER] ⚠️ No remote stream found for peer ${socketId?.substring(0, 8)}`, 'warning')
+        }
+        
+        // Increment version for this remote peer to force video re-render
+        setRemoteStreamVersions(prev => {
+          const newMap = new Map(prev)
+          const currentVersion = newMap.get(socketId) || 0
+          newMap.set(socketId, currentVersion + 1)
+          addDebugLog(`[RECEIVER] Incrementing video version for peer ${socketId?.substring(0, 8)} to ${currentVersion + 1}`, 'info')
+          return newMap
+        })
+        
+        // Force re-render of remote streams to ensure video elements update
+        addDebugLog('[RECEIVER] Forcing remote streams re-render...', 'info')
+        setRemoteStreams(prev => {
+          const newMap = new Map(prev)
+          addDebugLog(`[RECEIVER] Remote streams count: ${newMap.size}`, 'info')
+          return new Map(newMap)
+        })
+      })
+    }
+    
+    initializeConnection()
+    
+    return () => {
+      mounted = false
+
+      // Stop blur processor if active
+      if (blurProcessorRef.current) {
+        blurProcessorRef.current.stop()
+        blurProcessorRef.current = null
+      }
+      
+      // Stop noise suppressor if active
+      if (noiseSuppressorRef.current) {
+        noiseSuppressorRef.current.dispose()
+        noiseSuppressorRef.current = null
+      }
+      
+      // Stop original video track if stored
+      if (originalVideoTrackRef.current) {
+        originalVideoTrackRef.current.stop()
+        originalVideoTrackRef.current = null
+      }
+      
+      // Stop original audio track if stored
+      if (originalAudioTrackRef.current) {
+        originalAudioTrackRef.current.stop()
+        originalAudioTrackRef.current = null
+      }
+
+      // Stop local stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          track.stop()
+
+        })
+        localStreamRef.current = null
+      }
+      
+      // Stop screen stream if active
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(track => {
+          track.stop()
+
+        })
+        screenStreamRef.current = null
+      }
+      
+      // Close all peer connections
+      if (currentSocket) currentSocket.disconnect()
+      peerConnections.current.forEach(pc => pc.close())
+      peerConnections.current.clear()
+    }
+  }, [roomId, roomInfoLoaded, roomInfo, isHost]) // Wait for room info before connecting
+
+  // Create peer connection
+  const createPeerConnection = async (socketId, stream = null, socketRef = null) => {
+    const activeSocket = socketRef || socket
+    if (peerConnections.current.has(socketId)) return
+
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+    const currentStream = stream || localStream
+    
+    // Add camera/mic tracks
+    if (currentStream) {
+      currentStream.getTracks().forEach(track => {
+
+        pc.addTrack(track, currentStream)
+      })
+    }
+    
+    // Add screen share tracks if screen sharing is active
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(track => {
+
+        pc.addTrack(track, screenStreamRef.current)
+      })
+    }
+
+    pc.ontrack = (event) => {
+
+      if (event.streams && event.streams[0]) {
+        const stream = event.streams[0]
+        const streamId = stream.id
+        const track = event.track
+        
+        // Handle track ended event
+        track.onended = () => {
+
+          if (track.kind === 'video') {
+            // Remove the ended screen share stream
+            setRemoteScreenStreams(prev => {
+              const newMap = new Map(prev)
+              const key = socketId + '-screen-' + streamId
+              if (newMap.has(key)) {
+
+                newMap.delete(key)
+              }
+              return newMap
+            })
+          }
+        }
+        
+        // Handle stream removetrack event (when track is removed during renegotiation)
+        stream.onremovetrack = (e) => {
+
+          if (e.track.kind === 'video') {
+            setRemoteScreenStreams(prev => {
+              const newMap = new Map(prev)
+              const key = socketId + '-screen-' + streamId
+              if (newMap.has(key)) {
+
+                newMap.delete(key)
+              }
+              return newMap
+            })
+          }
+        }
+        
+        if (event.track.kind === 'video') {
+          const settings = event.track.getSettings()
+
+          // Check if screen share by properties
+          const isScreenShare = settings.displaySurface === 'monitor' || 
+                               settings.displaySurface === 'window' || 
+                               settings.displaySurface === 'browser' ||
+                               (settings.deviceId && settings.deviceId.startsWith('screen:')) ||
+                               (settings.width && settings.width > 1280)
+          
+          // Track video stream count
+          const currentCount = peerStreamCount.current.get(socketId) || 0
+          
+          // If this is the second video stream, it's screen share
+          if (isScreenShare || currentCount > 0) {
+            const key = socketId + '-screen-' + streamId
+
+
+            setRemoteScreenStreams(prev => {
+              const newMap = new Map(prev)
+              // Use stream ID to allow multiple screen shares
+              newMap.set(key, stream)
+              return newMap
+            })
+          } else {
+
+            peerStreamCount.current.set(socketId, currentCount + 1)
+            setRemoteStreams(prev => {
+              const newMap = new Map(prev)
+              newMap.set(socketId, stream)
+              return newMap
+            })
+          }
+        } else {
+          // Audio track
+
+          setRemoteStreams(prev => {
+            const newMap = new Map(prev)
+            if (!newMap.has(socketId)) {
+              newMap.set(socketId, stream)
+            }
+            return newMap
+          })
+        }
+      }
+    }
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && activeSocket) {
+        activeSocket.emit('ice-candidate', { target: socketId, candidate: event.candidate })
+      }
+    }
+
+    // Monitor connection state to detect actual disconnects (not renegotiation)
+    pc.onconnectionstatechange = () => {
+
+      // Only clean up on actual failures, not during 'connecting' (renegotiation)
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+
+        peerConnections.current.delete(socketId)
+        setRemoteStreams(prev => {
+          const newMap = new Map(prev)
+          newMap.delete(socketId)
+          return newMap
+        })
+      }
+    }
+
+    peerConnections.current.set(socketId, pc)
+
+    try {
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+      await pc.setLocalDescription(offer)
+      if (activeSocket) activeSocket.emit('offer', { target: socketId, offer })
+    } catch (error) {
+      console.error('Error creating offer:', error)
+    }
+  }
+
+  // Media controls
+  const toggleAudio = () => {
+    if (localStream) {
+      const enabled = !audioEnabled
+      console.log(`[toggleAudio] Toggling audio from ${audioEnabled} to ${enabled}`)
+      console.log('[toggleAudio] Current stream tracks:', {
+        audio: localStream.getAudioTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled })),
+        video: localStream.getVideoTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled }))
+      })
+      
+      // Only toggle AUDIO tracks, not video
+      const audioTracks = localStream.getAudioTracks()
+      audioTracks.forEach(track => {
+        console.log(`[toggleAudio] Setting audio track ${track.id} enabled to ${enabled}`)
+        track.enabled = enabled
+      })
+      setAudioEnabled(enabled)
+      socket?.emit('toggle-audio', { roomId, enabled })
+      
+      console.log('[toggleAudio] After toggle, stream tracks:', {
+        audio: localStream.getAudioTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled })),
+        video: localStream.getVideoTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled }))
+      })
+    }
+  }
+
+  const toggleVideo = () => {
+    if (localStream) {
+      const enabled = !videoEnabled
+      console.log(`[toggleVideo] Toggling video from ${videoEnabled} to ${enabled}`)
+      console.log('[toggleVideo] Current stream tracks:', {
+        audio: localStream.getAudioTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled })),
+        video: localStream.getVideoTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled }))
+      })
+      
+      // Only toggle VIDEO tracks, not audio
+      const videoTracks = localStream.getVideoTracks()
+      videoTracks.forEach(track => {
+        console.log(`[toggleVideo] Setting video track ${track.id} enabled to ${enabled}`)
+        track.enabled = enabled
+      })
+      setVideoEnabled(enabled)
+      socket?.emit('toggle-video', { roomId, enabled })
+      
+      console.log('[toggleVideo] After toggle, stream tracks:', {
+        audio: localStream.getAudioTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled })),
+        video: localStream.getVideoTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled }))
+      })
+    }
+  }
+
+  // Flip camera between front and back (for mobile/tablet)
+  const flipCamera = async () => {
+    // Prevent multiple simultaneous flips
+    if (isFlippingCamera.current) {
+      addDebugLog('⚠️ Camera flip already in progress, ignoring click', 'warning')
+      return
+    }
+    
+    try {
+      isFlippingCamera.current = true
+      const newFacingMode = facingMode === 'user' ? 'environment' : 'user'
+      
+      addDebugLog(`Starting flip from ${facingMode} to ${newFacingMode}`, 'info')
+      console.log('[FlipCamera] Starting flip from', facingMode, 'to', newFacingMode)
+      
+      // Get new video stream with flipped camera - DIRECTLY use getUserMedia with explicit facingMode
+      const constraints = {
+        video: {
+          facingMode: { exact: newFacingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false // Don't get audio, we'll preserve existing
+      }
+      
+      addDebugLog(`Constraints: ${JSON.stringify(constraints.video)}`, 'info')
+      console.log('[FlipCamera] Using constraints:', JSON.stringify(constraints))
+      
+      const newVideoStream = await navigator.mediaDevices.getUserMedia(constraints)
+      let newVideoTrack = newVideoStream.getVideoTracks()[0]
+      
+      if (!newVideoTrack) {
+        const error = 'Failed to get video track from new stream'
+        addDebugLog(error, 'error')
+        console.error('[FlipCamera]', error)
+        toast.error(error)
+        return
+      }
+      
+      addDebugLog(`Got new track: ${newVideoTrack.id}, label: ${newVideoTrack.label}`, 'success')
+      console.log('[FlipCamera] Got new video track:', newVideoTrack.id, 'readyState:', newVideoTrack.readyState)
+      
+      // Ensure track is enabled
+      newVideoTrack.enabled = videoEnabled
+      
+      // Store as original track (clone it first to keep a clean copy)
+      if (originalVideoTrackRef.current) {
+        originalVideoTrackRef.current.stop()
+      }
+      originalVideoTrackRef.current = newVideoTrack.clone()
+      
+      // Apply background blur if enabled
+      let finalVideoTrack = newVideoTrack
+      if (settings.backgroundBlur && blurProcessorRef.current) {
+        try {
+          addDebugLog('Applying background blur...', 'info')
+          console.log('[FlipCamera] Applying background blur to new camera')
+          
+          // Create video element for blur processor
+          const videoElement = document.createElement('video')
+          videoElement.srcObject = new MediaStream([newVideoTrack])
+          videoElement.autoplay = true
+          videoElement.muted = true
+          videoElement.playsInline = true // Important for mobile
+          
+          // Wait for video to be ready
+          await videoElement.play()
+          await new Promise(resolve => {
+            if (videoElement.readyState >= 2) {
+              resolve()
+            } else {
+              videoElement.onloadeddata = () => resolve()
+            }
+          })
+          
+          // Apply blur
+          const blurredStream = await blurProcessorRef.current.start(videoElement)
+          const blurredVideoTrack = blurredStream.getVideoTracks()[0]
+          
+          if (blurredVideoTrack) {
+            blurredVideoTrack.enabled = videoEnabled
+            // Stop the unblurred original since we're using the blurred one
+            newVideoTrack.stop()
+            finalVideoTrack = blurredVideoTrack
+            addDebugLog('Blur applied successfully', 'success')
+            console.log('[FlipCamera] Applied blur successfully')
+          }
+        } catch (blurError) {
+          addDebugLog(`Blur failed: ${blurError.message}`, 'error')
+          console.error('[FlipCamera] Failed to apply blur:', blurError)
+          if (isMobile) {
+            toast.error(`Blur application failed: ${blurError.message || 'Unknown error'}`)
+          }
+          // Continue with unblurred track
+          finalVideoTrack = newVideoTrack
+        }
+      }
+      
+      // Get current audio track to preserve it
+      const currentAudioTrack = localStreamRef.current?.getAudioTracks()[0]
+      
+      // Get old video track to stop it
+      const oldVideoTrack = localStreamRef.current?.getVideoTracks()[0]
+      
+      addDebugLog(`Old track: ${oldVideoTrack?.label || 'none'}`, 'info')
+      
+      // Create new stream with preserved audio and new video
+      const updatedStream = new MediaStream()
+      
+      // Add audio track if it exists
+      if (currentAudioTrack) {
+        updatedStream.addTrack(currentAudioTrack)
+        addDebugLog(`Preserved audio: ${currentAudioTrack.id}`, 'info')
+        console.log('[FlipCamera] Preserved audio track:', currentAudioTrack.id)
+      }
+      
+      // Add the final video track (blurred or unblurred)
+      updatedStream.addTrack(finalVideoTrack)
+      addDebugLog(`New stream has ${updatedStream.getTracks().length} tracks`, 'info')
+      console.log('[FlipCamera] Added video track:', finalVideoTrack.id)
+      
+      console.log('[FlipCamera] Created new stream with', updatedStream.getTracks().length, 'tracks')
+      
+      // Replace video track in all peer connections (AWAIT each replacement)
+      const replacePromises = []
+      addDebugLog(`[SENDER] Starting track replacement for ${peerConnections.current.size} peers`, 'info')
+      
+      peerConnections.current.forEach((pc, socketId) => {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+        if (sender) {
+          addDebugLog(`[SENDER] Found video sender for peer ${socketId.substring(0, 8)}, current track: ${sender.track?.id}`, 'info')
+          replacePromises.push(
+            sender.replaceTrack(finalVideoTrack)
+              .then(() => {
+                addDebugLog(`[SENDER] ✅ Replaced track for peer: ${socketId.substring(0, 8)}, new track: ${finalVideoTrack.id}, readyState: ${finalVideoTrack.readyState}, enabled: ${finalVideoTrack.enabled}`, 'success')
+                
+                // Verify the replacement
+                const currentTrack = sender.track
+                if (currentTrack && currentTrack.id === finalVideoTrack.id) {
+                  addDebugLog(`[SENDER] ✓ Verified replacement - sender now has track ${currentTrack.id}`, 'success')
+                } else {
+                  addDebugLog(`[SENDER] ⚠️ Verification failed - sender has track ${currentTrack?.id} but expected ${finalVideoTrack.id}`, 'error')
+                }
+                
+                console.log('[FlipCamera] Replaced track for peer:', socketId)
+                return true
+              })
+              .catch(err => {
+                addDebugLog(`[SENDER] ❌ Failed to replace for peer ${socketId.substring(0, 8)}: ${err.message}`, 'error')
+                console.error('[FlipCamera] Failed to replace track for peer:', socketId, err)
+                if (isMobile) {
+                  toast.error(`Failed to update video for peer: ${err.message}`)
+                }
+                return false
+              })
+          )
+        } else {
+          addDebugLog(`[SENDER] ⚠️ No video sender found for peer ${socketId.substring(0, 8)}`, 'warning')
+        }
+      })
+      
+      // Wait for all replacements to complete
+      const results = await Promise.all(replacePromises)
+      const successCount = results.filter(r => r).length
+      addDebugLog(`[SENDER] Replaced ${successCount}/${peerConnections.current.size} peer connections`, successCount === peerConnections.current.size ? 'success' : 'warning')
+      console.log('[FlipCamera] Replaced video track in', successCount, '/', peerConnections.current.size, 'peer connections')
+      
+      if (isMobile && successCount < peerConnections.current.size) {
+        toast.warning(`Camera switched, but ${peerConnections.current.size - successCount} peer(s) may not see the update`)
+      }
+      
+      // Log all senders' current tracks to verify
+      addDebugLog('[SENDER] Verifying all peer connections after replacement:', 'info')
+      peerConnections.current.forEach((pc, socketId) => {
+        const senders = pc.getSenders()
+        const videoSender = senders.find(s => s.track?.kind === 'video')
+        if (videoSender && videoSender.track) {
+          addDebugLog(`[SENDER] Peer ${socketId.substring(0, 8)} video track: ${videoSender.track.id}, readyState: ${videoSender.track.readyState}, enabled: ${videoSender.track.enabled}`, 'info')
+        } else {
+          addDebugLog(`[SENDER] Peer ${socketId.substring(0, 8)} has NO video track!`, 'error')
+        }
+      })
+      
+      // Update local refs and state FIRST (before stopping old track)
+      addDebugLog(`[SENDER] Updating localStreamRef and state...`, 'info')
+      localStreamRef.current = updatedStream
+      setLocalStream(updatedStream)
+      setLocalStreamVersion(prev => prev + 1) // Force video re-render
+      addDebugLog(`[UI] Forcing video element re-render (version: ${localStreamVersion + 1})`, 'info')
+      setFacingMode(newFacingMode)
+      
+      // NOW stop old video track (after state is updated)
+      if (oldVideoTrack) {
+        addDebugLog(`[SENDER] Stopping old track: ${oldVideoTrack.id}`, 'info')
+        console.log('[FlipCamera] Stopping old video track:', oldVideoTrack.id)
+        oldVideoTrack.stop()
+      }
+      
+      // Notify other peers about camera change
+      if (socket) {
+        socket.emit('camera-flipped', { 
+          roomId, 
+          facingMode: newFacingMode,
+          trackId: finalVideoTrack.id
+        })
+        addDebugLog('Notified peers about camera flip', 'info')
+      }
+      
+      addDebugLog(`✅ Camera flip to ${newFacingMode === 'user' ? 'FRONT' : 'BACK'} completed!`, 'success')
+      toast.success(`Switched to ${newFacingMode === 'user' ? 'front' : 'back'} camera`)
+      
+      // Reset flip lock
+      isFlippingCamera.current = false
+    } catch (error) {
+      // Reset flip lock on error
+      isFlippingCamera.current = false
+      
+      addDebugLog(`❌ Error: ${error.name} - ${error.message}`, 'error')
+      console.error('[FlipCamera] ❌ Failed:', error)
+      
+      // Show detailed error on mobile
+      if (isMobile) {
+        let errorMessage = 'Failed to switch camera'
+        
+        // Provide specific error messages based on error type
+        if (error.name === 'NotAllowedError') {
+          errorMessage = 'Camera permission denied. Please allow camera access.'
+        } else if (error.name === 'NotFoundError') {
+          errorMessage = 'Camera not found. Please check if camera is available.'
+        } else if (error.name === 'NotReadableError') {
+          errorMessage = 'Camera is already in use by another app.'
+        } else if (error.name === 'OverconstrainedError') {
+          errorMessage = 'Camera does not support the requested settings.'
+        } else if (error.message) {
+          errorMessage = `Camera error: ${error.message}`
+        }
+        
+        toast.error(errorMessage, { duration: 4000 })
+        console.log('[FlipCamera] Error shown to user:', errorMessage)
+      } else {
+        toast.error('Failed to switch camera. Please try again.')
+      }
+    }
+  }
+
+  const startScreenShare = async () => {
+    try {
+      // Check if screen sharing is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        if (isMobile) {
+          toast.error('Screen sharing is not supported on mobile browsers. Please use desktop Chrome, Firefox, or Edge.')
+        } else {
+          toast.error('Screen sharing is not supported on this browser')
+        }
+        return
+      }
+
+      const displayMediaOptions = {
+        video: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 }
+        },
+        audio: false // Don't request audio for better compatibility
+      }
+
+      const newScreenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions)
+
+      setScreenStream(newScreenStream)
+      screenStreamRef.current = newScreenStream
+      setScreenSharing(true)
+      setShowScreenShareDropdown(false)
+      
+      const screenTrack = newScreenStream.getVideoTracks()[0]
+      
+      // Add screen track to all peer connections and renegotiate sequentially
+      const renegotiations = []
+      peerConnections.current.forEach((pc, socketId) => {
+
+        pc.addTrack(screenTrack, newScreenStream)
+        
+        // Queue renegotiation
+        renegotiations.push(
+          (async () => {
+            try {
+              const offer = await pc.createOffer()
+              await pc.setLocalDescription(offer)
+              socket?.emit('offer', { target: socketId, offer })
+
+            } catch (error) {
+              console.error('[ScreenShare] Failed to renegotiate with:', socketId, error)
+            }
+          })()
+        )
+      })
+      
+      // Wait for all renegotiations to complete
+      await Promise.all(renegotiations)
+      
+      playScreenShareStart()
+      socket?.emit('toggle-screen-share', { roomId, enabled: true })
+      
+      // Handle when user stops screen share via browser UI
+      screenTrack.onended = () => {
+        stopScreenShare()
+      }
+      
+      toast.success('Screen sharing started')
+    } catch (error) {
+      console.error('[ScreenShare] Failed:', error)
+      if (error.name === 'NotAllowedError') {
+        toast.error('Screen sharing permission denied')
+      } else if (error.name === 'NotSupportedError') {
+        toast.error('Screen sharing is not supported on this browser')
+      } else {
+        toast.error('Screen sharing failed')
+      }
+    }
+  }
+  
+  const stopScreenShare = async () => {
+
+
+
+    // Use ref instead of state to avoid race conditions
+    const streamToStop = screenStreamRef.current || screenStream
+    
+    if (streamToStop) {
+      const tracks = streamToStop.getTracks()
+      
+      // Remove screen track from all peer connections
+
+      peerConnections.current.forEach((pc, socketId) => {
+        const senders = pc.getSenders()
+
+        senders.forEach(sender => {
+          if (sender.track && tracks.includes(sender.track)) {
+
+            pc.removeTrack(sender)
+          }
+        })
+      })
+      
+      // Renegotiate with all peers to notify them screen share stopped
+
+      const renegotiations = []
+      peerConnections.current.forEach((pc, socketId) => {
+        renegotiations.push(
+          (async () => {
+            try {
+
+              const offer = await pc.createOffer()
+              await pc.setLocalDescription(offer)
+              socket?.emit('offer', { target: socketId, offer })
+
+            } catch (error) {
+              console.error('[ScreenShare] Failed to renegotiate with:', socketId, error)
+            }
+          })()
+        )
+      })
+      
+      // Wait for all renegotiations to complete
+
+      await Promise.all(renegotiations)
+
+      // Stop tracks if not already stopped (handles both UI button and browser stop button)
+      tracks.forEach(track => {
+        if (track.readyState !== 'ended') {
+
+          track.stop()
+        } else {
+
+        }
+      })
+      
+      setScreenStream(null)
+      screenStreamRef.current = null
+
+    } else {
+    }
+    setScreenSharing(false)
+    setShowScreenShareDropdown(false)
+    playScreenShareStop()
+    socket?.emit('toggle-screen-share', { roomId, enabled: false })
+
+  }
+  
+  const toggleScreenShare = () => {
+    if (screenSharing) {
+      setShowScreenShareDropdown(!showScreenShareDropdown)
+    } else {
+      startScreenShare()
+    }
+  }
+
+  const sendMessage = () => {
+    if (newMessage.trim() && socket) {
+      socket.emit('send-message', {
+        roomId,
+        message: newMessage,
+        userName
+      })
+      setNewMessage('')
+    }
+  }
+
+  const copyInviteLink = () => {
+    const inviteLink = `${window.location.origin}/room/${roomId}`
+    navigator.clipboard.writeText(inviteLink).then(() => {
+      toast.success('Invite link copied!')
+    }).catch(() => {
+      toast.error('Failed to copy link')
+    })
+  }
+
+  const handleApproveJoin = (targetSocketId) => {
+    if (socket) {
+      socket.emit('approve-join', { targetSocketId })
+      // Remove from pending requests
+      setJoinRequests(prev => prev.filter(req => req.socketId !== targetSocketId))
+      toast.success('Participant approved')
+    }
+  }
+
+  const handleRejectJoin = (targetSocketId) => {
+    if (socket) {
+      socket.emit('reject-join', { targetSocketId })
+      // Remove from pending requests
+      setJoinRequests(prev => prev.filter(req => req.socketId !== targetSocketId))
+      toast('Join request declined')
+    }
+  }
+
+  const leaveMeeting = () => {
+    addDebugLog('Leaving meeting - starting cleanup...', 'info')
+    
+    // Stop all local media tracks (camera and mic)
+    if (localStreamRef.current) {
+      addDebugLog(`Stopping ${localStreamRef.current.getTracks().length} local tracks`, 'info')
+      localStreamRef.current.getTracks().forEach(track => {
+        addDebugLog(`Stopping track: ${track.kind} (${track.label})`, 'info')
+        track.stop()
+      })
+      localStreamRef.current = null
+      setLocalStream(null)
+    }
+    
+    // Stop screen sharing if active
+    if (screenStreamRef.current) {
+      addDebugLog(`Stopping screen share`, 'info')
+      screenStreamRef.current.getTracks().forEach(track => {
+        track.stop()
+      })
+      screenStreamRef.current = null
+      setScreenStream(null)
+      setScreenSharing(false)
+    }
+    
+    // Stop original video track if stored
+    if (originalVideoTrackRef.current) {
+      addDebugLog('Stopping original video track', 'info')
+      originalVideoTrackRef.current.stop()
+      originalVideoTrackRef.current = null
+    }
+    
+    // Stop original audio track if stored
+    if (originalAudioTrackRef.current) {
+      addDebugLog('Stopping original audio track', 'info')
+      originalAudioTrackRef.current.stop()
+      originalAudioTrackRef.current = null
+    }
+    
+    // Clean up blur processor
+    if (blurProcessorRef.current) {
+      addDebugLog('Stopping blur processor', 'info')
+      blurProcessorRef.current.stop()
+      blurProcessorRef.current = null
+    }
+    
+    // Clean up noise suppressor
+    if (noiseSuppressorRef.current) {
+      addDebugLog('Disposing noise suppressor', 'info')
+      noiseSuppressorRef.current.dispose()
+      noiseSuppressorRef.current = null
+    }
+    
+    // Reset background blur setting
+    if (settings.backgroundBlur) {
+      updateSetting('backgroundBlur', false)
+    }
+    
+    // Release wake lock
+    if (wakeLock) {
+      wakeLock.release()
+      setWakeLock(null)
+    }
+    
+    // Close all peer connections
+    if (peerConnections.current.size > 0) {
+      addDebugLog(`Closing ${peerConnections.current.size} peer connections`, 'info')
+      peerConnections.current.forEach((pc, socketId) => {
+        addDebugLog(`Closing peer: ${socketId.substring(0, 8)}`, 'info')
+        pc.close()
+      })
+      peerConnections.current.clear()
+    }
+    
+    // Disconnect socket
+    if (socket) {
+      addDebugLog('Disconnecting socket', 'info')
+      socket.disconnect()
+    }
+    
+    addDebugLog('✅ Cleanup completed', 'success')
+    playUserLeft()
+    setTimeout(() => navigate('/'), 300)
+  }
+
+  // Handle responsive design
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      setSidebarOpen(!mobile)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // Auto-hide controls
+  useEffect(() => {
+    if (isMobile || !settings.autoHideControls) return
+    
+    const resetControlsTimeout = () => {
+      setShowControls(true)
+      clearTimeout(controlsTimeoutRef.current)
+      controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000)
+    }
+
+    const handleMouseMove = () => resetControlsTimeout()
+    document.addEventListener('mousemove', handleMouseMove)
+    resetControlsTimeout()
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      clearTimeout(controlsTimeoutRef.current)
+    }
+  }, [isMobile, settings.autoHideControls])
+  
+  // Cleanup on browser tab close/refresh
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      // Stop all media tracks
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop())
+      }
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(track => track.stop())
+      }
+      if (originalVideoTrackRef.current) {
+        originalVideoTrackRef.current.stop()
+      }
+      if (originalAudioTrackRef.current) {
+        originalAudioTrackRef.current.stop()
+      }
+      
+      // Clean up processors
+      if (blurProcessorRef.current) {
+        blurProcessorRef.current.stop()
+      }
+      if (noiseSuppressorRef.current) {
+        noiseSuppressorRef.current.dispose()
+      }
+      
+      // Note: We don't prevent default - just clean up
+    }
+    
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [])
+
+  // Monitor screen stream validity (especially after hot reload)
+  useEffect(() => {
+    if (!screenStream) return
+    
+    const checkStreamValidity = () => {
+      const tracks = screenStream.getTracks()
+      const hasActiveTracks = tracks.some(track => track.readyState === 'live')
+      
+      if (!hasActiveTracks) {
+
+        setScreenStream(null)
+        screenStreamRef.current = null
+        setScreenSharing(false)
+        socket?.emit('toggle-screen-share', { roomId, enabled: false })
+        toast.info('Screen sharing ended')
+      }
+    }
+    
+    // Check immediately
+    checkStreamValidity()
+    
+    // Also listen for track ended events
+    screenStream.getTracks().forEach(track => {
+      if (!track.onended) {
+        track.onended = () => {
+
+          stopScreenShare()
+        }
+      }
+    })
+  }, [screenStream, socket, roomId])
+
+  // Periodically clean up remote screen shares with ended tracks
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setRemoteScreenStreams(prev => {
+        const newMap = new Map(prev)
+        let hasChanges = false
+        
+        Array.from(newMap.entries()).forEach(([key, stream]) => {
+          const tracks = stream.getTracks()
+          const allEnded = tracks.length === 0 || tracks.every(track => track.readyState === 'ended')
+          
+          if (allEnded) {
+
+            newMap.delete(key)
+            hasChanges = true
+          }
+        })
+        
+        return hasChanges ? newMap : prev
+      })
+    }, 500) // Check every 500ms for faster cleanup
+    
+    return () => clearInterval(interval)
+  }, [])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showScreenShareDropdown && !event.target.closest('.screen-share-container')) {
+        setShowScreenShareDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showScreenShareDropdown])
+
+  // Handle video quality changes
+  useEffect(() => {
+    const updateVideoQuality = async () => {
+      if (!localStreamRef.current) return
+      
+      try {
+        // Get new constraints with updated quality
+        const constraints = getConstraints({ 
+          video: true, 
+          audio: true,
+          facingMode 
+        })
+        
+        // Get new media stream with updated quality
+        const newStream = await navigator.mediaDevices.getUserMedia(constraints)
+        const newVideoTrack = newStream.getVideoTracks()[0]
+        const oldVideoTrack = localStreamRef.current.getVideoTracks()[0]
+        
+        if (!newVideoTrack) return
+        
+        // Store the new original track
+        if (originalVideoTrackRef.current) {
+          originalVideoTrackRef.current.stop()
+        }
+        originalVideoTrackRef.current = newVideoTrack.clone()
+        
+        // Apply blur if enabled
+        let finalVideoTrack = newVideoTrack
+        if (settings.backgroundBlur) {
+          try {
+            const videoElement = document.createElement('video')
+            videoElement.srcObject = new MediaStream([newVideoTrack])
+            videoElement.autoplay = true
+            videoElement.muted = true
+            await videoElement.play()
+            
+            // Use existing processor or create new one with person detection
+            if (!blurProcessorRef.current) {
+              try {
+                blurProcessorRef.current = new BackgroundBlurProcessor(15)
+                await blurProcessorRef.current.init()
+              } catch (mlError) {
+                console.warn('ML-based blur failed, using simple blur')
+                blurProcessorRef.current = new SimpleBackgroundBlurProcessor(15)
+              }
+            }
+            
+            const blurredStream = await blurProcessorRef.current.start(videoElement)
+            finalVideoTrack = blurredStream.getVideoTracks()[0]
+            newVideoTrack.stop() // Stop the original since we're using blurred
+          } catch (blurError) {
+            console.error('Blur application failed during quality change:', blurError)
+          }
+        }
+        
+        // Replace video track in local stream
+        localStreamRef.current.removeTrack(oldVideoTrack)
+        localStreamRef.current.addTrack(finalVideoTrack)
+        setLocalStream(new MediaStream(localStreamRef.current.getTracks()))
+        
+        // Replace video track in all peer connections
+        peerConnections.current.forEach(async (pc) => {
+          const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+          if (sender) {
+            await sender.replaceTrack(finalVideoTrack)
+          }
+        })
+        
+        // Stop old video track
+        if (oldVideoTrack) {
+          oldVideoTrack.stop()
+        }
+        
+        // Stop other new tracks we don't need
+        newStream.getAudioTracks().forEach(track => track.stop())
+        
+        toast.success(`Video quality updated to ${settings.videoQuality}`)
+      } catch (error) {
+        console.error('Failed to update video quality:', error)
+        toast.error('Failed to update video quality')
+      }
+    }
+    
+    // Only update if we have an active stream
+    if (localStreamRef.current) {
+      updateVideoQuality()
+    }
+  }, [settings.videoQuality])
+
+  // Handle audio quality changes
+  useEffect(() => {
+    const updateAudioQuality = async () => {
+      if (!localStreamRef.current) return
+      
+      const currentAudioTrack = localStreamRef.current.getAudioTracks()[0]
+      if (!currentAudioTrack) return
+      
+      try {
+        // Get new constraints with updated audio quality
+        const constraints = getConstraints({ 
+          video: false,
+          audio: true
+        })
+        
+        // Get new audio stream with updated quality
+        const newStream = await navigator.mediaDevices.getUserMedia(constraints)
+        const newAudioTrack = newStream.getAudioTracks()[0]
+        
+        if (!newAudioTrack) return
+        
+        // Replace audio track in local stream
+        localStreamRef.current.removeTrack(currentAudioTrack)
+        localStreamRef.current.addTrack(newAudioTrack)
+        setLocalStream(new MediaStream(localStreamRef.current.getTracks()))
+        
+        // Replace audio track in all peer connections
+        peerConnections.current.forEach(async (pc) => {
+          const sender = pc.getSenders().find(s => s.track?.kind === 'audio')
+          if (sender) {
+            await sender.replaceTrack(newAudioTrack)
+          }
+        })
+        
+        // Stop old audio track
+        currentAudioTrack.stop()
+        
+        toast.success(`Audio quality updated to ${settings.audioQuality}`)
+      } catch (error) {
+        console.error('Failed to update audio quality:', error)
+        toast.error('Failed to update audio quality')
+      }
+    }
+    
+    // Only update if we have an active stream
+    if (localStreamRef.current) {
+      updateAudioQuality()
+    }
+  }, [settings.audioQuality])
+
+  // Handle background blur toggle
+  useEffect(() => {
+    const toggleBlur = async () => {
+      if (!localStreamRef.current) return
+      
+      const currentVideoTrack = localStreamRef.current.getVideoTracks()[0]
+      if (!currentVideoTrack) return
+      
+      try {
+        if (settings.backgroundBlur) {
+          // Enable blur
+          const videoElement = document.createElement('video')
+          videoElement.srcObject = new MediaStream([originalVideoTrackRef.current || currentVideoTrack])
+          videoElement.autoplay = true
+          videoElement.muted = true
+          await videoElement.play()
+          
+          // Try BackgroundBlurProcessor first (with person segmentation)
+          try {
+            if (!blurProcessorRef.current) {
+              blurProcessorRef.current = new BackgroundBlurProcessor(15)
+              await blurProcessorRef.current.init()
+              toast.success('Background blur with person detection enabled')
+            }
+          } catch (mlError) {
+            console.warn('ML-based blur failed, using simple blur:', mlError)
+            // Fall back to simple blur
+            if (blurProcessorRef.current) {
+              try {
+                blurProcessorRef.current.stop()
+              } catch (e) {
+                console.error('Error stopping blur processor:', e)
+              }
+            }
+            blurProcessorRef.current = new SimpleBackgroundBlurProcessor(15)
+            toast.success('Background blur enabled')
+          }
+          
+          const blurredStream = await blurProcessorRef.current.start(videoElement)
+          const blurredVideoTrack = blurredStream.getVideoTracks()[0]
+          
+          if (!blurredVideoTrack) {
+            throw new Error('Failed to get blurred video track')
+          }
+          
+          // Replace track in local stream
+          localStreamRef.current.removeTrack(currentVideoTrack)
+          localStreamRef.current.addTrack(blurredVideoTrack)
+          setLocalStream(new MediaStream(localStreamRef.current.getTracks()))
+          
+          // Replace track in all peer connections
+          peerConnections.current.forEach(async (pc) => {
+            const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+            if (sender) {
+              await sender.replaceTrack(blurredVideoTrack)
+            }
+          })
+          
+          // Stop the current track if it's not the original
+          if (currentVideoTrack !== originalVideoTrackRef.current) {
+            currentVideoTrack.stop()
+          }
+        } else {
+          // Disable blur
+          if (blurProcessorRef.current) {
+            try {
+              blurProcessorRef.current.stop()
+              blurProcessorRef.current = null
+            } catch (e) {
+              console.error('Error stopping blur processor:', e)
+            }
+          }
+          
+          // Use original track or get new one
+          let originalTrack = originalVideoTrackRef.current
+          if (!originalTrack || originalTrack.readyState === 'ended') {
+            const constraints = getConstraints({ 
+              video: true, 
+              audio: false,
+              facingMode 
+            })
+            const stream = await navigator.mediaDevices.getUserMedia(constraints)
+            originalTrack = stream.getVideoTracks()[0]
+            originalVideoTrackRef.current = originalTrack.clone()
+          }
+          
+          // Replace track in local stream
+          localStreamRef.current.removeTrack(currentVideoTrack)
+          localStreamRef.current.addTrack(originalTrack)
+          setLocalStream(new MediaStream(localStreamRef.current.getTracks()))
+          
+          // Replace track in all peer connections
+          peerConnections.current.forEach(async (pc) => {
+            const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+            if (sender) {
+              await sender.replaceTrack(originalTrack)
+            }
+          })
+          
+          // Stop the blurred track
+          currentVideoTrack.stop()
+          
+          toast.success('Background blur disabled')
+        }
+      } catch (error) {
+        console.error('Failed to toggle background blur:', error)
+        toast.error('Background blur failed, disabling...')
+        
+        // Auto-disable blur setting on error to prevent being stuck
+        if (settings.backgroundBlur) {
+          updateSetting('backgroundBlur', false)
+        }
+        
+        // Clean up processor
+        if (blurProcessorRef.current) {
+          try {
+            blurProcessorRef.current.stop()
+          } catch (e) {
+            console.error('Error cleaning up blur processor:', e)
+          }
+          blurProcessorRef.current = null
+        }
+      }
+    }
+    
+    // Only toggle if we have an active stream
+    if (localStreamRef.current) {
+      toggleBlur()
+    }
+  }, [settings.backgroundBlur])
+
+  // Background functionality - Page Visibility API with audio maintenance
+  useEffect(() => {
+    let audioContext = null
+    let heartbeatInterval = null
+    
+    const handleVisibilityChange = () => {
+      const visible = !document.hidden
+      setIsPageVisible(visible)
+      
+      if (visible) {
+        addDebugLog('📱 Page became visible - meeting continues', 'success')
+        // Clean up background audio maintenance
+        if (audioContext) {
+          audioContext.close()
+          audioContext = null
+        }
+        if (heartbeatInterval) {
+          clearInterval(heartbeatInterval)
+          heartbeatInterval = null
+        }
+        requestWakeLock()
+      } else {
+        addDebugLog('📱 Page hidden - maintaining audio in background', 'info')
+        // Show user notification about background audio
+        if (audioEnabled) {
+          toast('Audio will continue in background', {
+            icon: '🔊',
+            duration: 3000,
+            style: {
+              background: settings.theme === 'light' ? '#f3f4f6' : '#374151',
+              color: settings.theme === 'light' ? '#1f2937' : '#f9fafb'
+            }
+          })
+        }
+        // Maintain audio context to prevent throttling
+        maintainBackgroundAudio()
+      }
+    }
+    
+    const maintainBackgroundAudio = async () => {
+      try {
+        // Create AudioContext to keep audio processing active
+        audioContext = new (window.AudioContext || window.webkitAudioContext)()
+        
+        // Resume context if suspended (required by some browsers)
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume()
+        }
+        
+        // Create a silent oscillator to keep context active
+        const oscillator = audioContext.createOscillator()
+        const gainNode = audioContext.createGain()
+        
+        oscillator.connect(gainNode)
+        gainNode.connect(audioContext.destination)
+        gainNode.gain.value = 0 // Silent
+        
+        oscillator.frequency.value = 440
+        oscillator.start()
+        
+        // Heartbeat to maintain WebRTC connections and audio
+        heartbeatInterval = setInterval(() => {
+          if (localStreamRef.current && audioEnabled) {
+            const audioTrack = localStreamRef.current.getAudioTracks()[0]
+            if (audioTrack && audioTrack.readyState === 'live') {
+              // Refresh audio track properties to prevent throttling
+              audioTrack.enabled = false
+              setTimeout(() => {
+                if (audioTrack.readyState === 'live') {
+                  audioTrack.enabled = true
+                }
+              }, 50)
+            }
+          }
+          
+          // Keep peer connections alive with stats check
+          peerConnections.current.forEach(async (pc, socketId) => {
+            if (pc.connectionState === 'connected') {
+              try {
+                // Get stats to keep connection active
+                await pc.getStats()
+                
+                // Ensure audio senders are active
+                const audioSender = pc.getSenders().find(s => s.track?.kind === 'audio')
+                if (audioSender && audioSender.track) {
+                  // Touch the sender to keep it active
+                  const params = audioSender.getParameters()
+                  if (params) {
+                    audioSender.setParameters(params)
+                  }
+                }
+              } catch (error) {
+                addDebugLog(`Heartbeat failed for peer ${socketId.substring(0, 8)}: ${error.message}`, 'warning')
+              }
+            }
+          })
+        }, 2000)
+        
+        addDebugLog('🔊 Background audio maintenance active', 'success')
+        
+        // Notify user that background audio is working
+        setTimeout(() => {
+          if (!document.hidden && audioEnabled) {
+            toast.success('Background audio maintained successfully', {
+              duration: 2000,
+              style: {
+                background: settings.theme === 'light' ? '#f0fdf4' : '#064e3b',
+                color: settings.theme === 'light' ? '#166534' : '#bbf7d0'
+              }
+            })
+          }
+        }, 3000)
+      } catch (error) {
+        addDebugLog(`Background audio setup failed: ${error.message}`, 'warning')
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      if (audioContext) {
+        audioContext.close()
+      }
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval)
+      }
+    }
+  }, [])
+  
+  // Wake Lock API to prevent device sleep
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator && !wakeLock) {
+        const lock = await navigator.wakeLock.request('screen')
+        setWakeLock(lock)
+        addDebugLog('🔒 Wake lock acquired - screen will stay on', 'success')
+        
+        lock.addEventListener('release', () => {
+          addDebugLog('🔓 Wake lock released', 'info')
+          setWakeLock(null)
+        })
+      }
+    } catch (error) {
+      addDebugLog(`Wake lock failed: ${error.message}`, 'warning')
+    }
+  }
+  
+  // Optimize for background mode - keep audio, reduce video
+  const optimizeForBackground = () => {
+    if (!localStream) return
+    
+    // Keep audio active but reduce video quality to save bandwidth
+    const audioTrack = localStream.getAudioTracks()[0]
+    const videoTrack = localStream.getVideoTracks()[0]
+    
+    // Ensure audio stays enabled and active in background
+    if (audioTrack && audioEnabled) {
+      audioTrack.enabled = true
+      // Force audio track to stay active
+      if (audioTrack.readyState === 'live') {
+        // Apply constraints to refresh the track
+        audioTrack.applyConstraints({
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }).catch(() => {
+          // Ignore constraint errors, just keep track active
+        })
+      }
+      addDebugLog('🔊 Audio maintained and refreshed in background', 'success')
+    }
+    
+    // Optionally disable video to save bandwidth
+    if (videoTrack && videoEnabled && settings.backgroundOptimization) {
+      videoTrack.enabled = false
+      addDebugLog('📹 Video disabled for background optimization', 'info')
+      
+      // Re-enable when page becomes visible
+      const enableVideoWhenVisible = () => {
+        if (!document.hidden && videoEnabled) {
+          videoTrack.enabled = true
+          addDebugLog('📹 Video re-enabled - page is visible', 'success')
+          document.removeEventListener('visibilitychange', enableVideoWhenVisible)
+        }
+      }
+      document.addEventListener('visibilitychange', enableVideoWhenVisible)
+    }
+  }
+  
+  // Initialize wake lock on mount
+  useEffect(() => {
+    requestWakeLock()
+    
+    return () => {
+      if (wakeLock) {
+        wakeLock.release()
+      }
+    }
+  }, [])
+  
+  // Handle noise suppression toggle
+  useEffect(() => {
+    // Skip on initial mount
+    if (isInitialNoiseSuppressionMount.current) {
+      isInitialNoiseSuppressionMount.current = false
+      return
+    }
+
+    const updateNoiseSuppression = async () => {
+      if (!localStreamRef.current) return
+      
+      const currentAudioTrack = localStreamRef.current.getAudioTracks()[0]
+      if (!currentAudioTrack) return
+      
+      try {
+        console.log(`🔄 Updating noise suppression: ${settings.noiseSuppression}`)
+        
+        if (settings.noiseSuppression) {
+          // Enable noise gate
+          // Dispose old processor if exists
+          if (noiseSuppressorRef.current) {
+            noiseSuppressorRef.current.dispose()
+            noiseSuppressorRef.current = null
+          }
+          
+          // Get original audio track or current one
+          const sourceTrack = originalAudioTrackRef.current || currentAudioTrack
+          
+          // Apply noise gate
+          const { stream: processedStream, processor } = await createNoiseSuppressor(
+            new MediaStream([sourceTrack]),
+            true // Use advanced noise gate
+          )
+          
+          const processedAudioTrack = processedStream.getAudioTracks()[0]
+          if (processedAudioTrack) {
+            // Replace audio track in local stream
+            localStreamRef.current.removeTrack(currentAudioTrack)
+            localStreamRef.current.addTrack(processedAudioTrack)
+            setLocalStream(new MediaStream(localStreamRef.current.getTracks()))
+            
+            // Replace audio track in all peer connections
+            for (const pc of peerConnections.current.values()) {
+              const sender = pc.getSenders().find(s => s.track?.kind === 'audio')
+              if (sender) {
+                await sender.replaceTrack(processedAudioTrack)
+              }
+            }
+            
+            // Store processor
+            noiseSuppressorRef.current = processor
+            
+            // Stop old audio track if it's not the original
+            if (currentAudioTrack !== sourceTrack) {
+              currentAudioTrack.stop()
+            }
+            
+            toast.success('Advanced noise suppression enabled')
+            console.log('✅ Advanced noise gate applied')
+          }
+        } else {
+          // Disable noise gate - use original track
+          if (noiseSuppressorRef.current) {
+            noiseSuppressorRef.current.dispose()
+            noiseSuppressorRef.current = null
+          }
+          
+          // Use original audio track
+          const originalTrack = originalAudioTrackRef.current
+          if (originalTrack) {
+            // Replace with original
+            localStreamRef.current.removeTrack(currentAudioTrack)
+            localStreamRef.current.addTrack(originalTrack)
+            setLocalStream(new MediaStream(localStreamRef.current.getTracks()))
+            
+            // Replace in all peer connections
+            for (const pc of peerConnections.current.values()) {
+              const sender = pc.getSenders().find(s => s.track?.kind === 'audio')
+              if (sender) {
+                await sender.replaceTrack(originalTrack)
+              }
+            }
+            
+            // Stop processed track
+            currentAudioTrack.stop()
+            
+            toast.success('Noise suppression disabled')
+            console.log('ℹ️ Using original audio track (browser built-in only)')
+          }
+        }
+      } catch (error) {
+        console.error('Failed to update noise suppression:', error)
+        toast.error('Failed to update noise suppression')
+      }
+    }
+    
+    // Only update if we have an active stream
+    if (localStreamRef.current && localStreamRef.current.getAudioTracks().length > 0) {
+      updateNoiseSuppression()
+    }
+  }, [settings.noiseSuppression])
+
+  // Theme classes - light theme with warm tones, dark theme truly dark
+  const themeClasses = settings.theme === 'light' 
+    ? 'bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30'
+    : 'bg-gradient-to-br from-gray-950 via-slate-950 to-gray-950'
+
+  const headerClasses = settings.theme === 'light'
+    ? isMobile 
+      ? 'bg-white/95 backdrop-blur-xl border-b border-gray-200 shadow-lg'
+      : 'bg-gradient-to-b from-white/90 to-transparent'
+    : isMobile
+      ? 'bg-gray-950/98 backdrop-blur-xl border-b border-gray-800/50 shadow-lg'
+      : 'bg-gradient-to-b from-black/60 to-transparent'
+
+  const roomInfoClasses = settings.theme === 'light'
+    ? 'bg-white/90 backdrop-blur-xl border-gray-200 shadow-xl'
+    : 'bg-gray-900/90 backdrop-blur-xl border-gray-800/50 shadow-xl'
+
+  const buttonClasses = settings.theme === 'light'
+    ? 'text-gray-700 hover:bg-gray-200/60'
+    : 'text-white hover:bg-gray-800/50'
+
+  const textClasses = settings.theme === 'light'
+    ? 'text-gray-900'
+    : 'text-white'
+
+  const secondaryTextClasses = settings.theme === 'light'
+    ? 'text-gray-600'
+    : 'text-gray-400'
+
+  return (
+    <div className={`h-screen ${themeClasses} flex flex-col overflow-hidden`}>
+      {/* Header */}
+      <div className={`${isMobile ? 'sticky top-0' : 'absolute top-0 left-0 right-0'} z-50 ${headerClasses} ${isMobile ? 'px-3 py-2.5' : 'px-4 py-3'} transition-opacity duration-300 ${!isMobile && !showControls ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        <div className="flex items-center justify-between">
+          {/* Logo */}
+          <div className="flex items-center gap-2">
+            <img
+              src={branding.logoIcon}
+              alt={branding.appName}
+              className={`${isMobile ? 'h-6' : 'h-8'} object-contain`}
+            />
+            {!isMobile && <span className={`font-bold ${textClasses}`}>{branding.appName}</span>}
+          </div>
+          
+          <div className="flex items-center space-x-2 md:space-x-3">
+            <div className={`${roomInfoClasses} rounded-xl md:rounded-2xl ${isMobile ? 'px-2.5 py-1.5' : 'px-4 py-2'} border`}>
+              <div className="flex items-center gap-2 md:gap-3">
+                <div className={`${isMobile ? 'w-2 h-2' : 'w-3 h-3'} bg-green-500 rounded-full animate-pulse`} />
+                <span className={`${textClasses} font-medium ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                  {isMobile ? `${participants.length + 1}` : `Room: ${roomId}`}
+                </span>
+                {!isMobile && (
+                  <>
+                    <span className={`${secondaryTextClasses} text-xs`}>•</span>
+                    <span className={`${secondaryTextClasses} text-xs`}>{participants.length + 1} participants</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex items-center space-x-1.5 md:space-x-2">
+            <button
+              onClick={() => {
+                // Cycle through: grid -> speaker -> interview -> grid
+                const modes = ['grid', 'speaker', 'interview']
+                const currentIndex = modes.indexOf(viewMode)
+                const nextMode = modes[(currentIndex + 1) % modes.length]
+                setViewMode(nextMode)
+                updateSetting('layout', nextMode)
+              }}
+              className={`${isMobile ? 'p-2' : 'p-3'} ${buttonClasses} rounded-xl transition-all duration-200 hover:scale-105 shadow-lg`}
+              title={viewMode === 'grid' ? 'Switch to Speaker View' : viewMode === 'speaker' ? 'Switch to Interview Mode' : 'Switch to Grid View'}
+            >
+              {viewMode === 'grid' ? (
+                <Grid3X3 size={isMobile ? 16 : 18} />
+              ) : viewMode === 'speaker' ? (
+                <User size={isMobile ? 16 : 18} />
+              ) : (
+                <BriefcaseBusiness size={isMobile ? 16 : 18} />
+              )}
+            </button>
+            
+            {/* Sidebar toggle - only functional on mobile/tablet */}
+            <button
+              onClick={() => isMobile && setSidebarOpen(!sidebarOpen)}
+              className={`${isMobile ? 'p-2' : 'p-3'} ${buttonClasses} rounded-xl transition-all duration-200 ${isMobile ? 'hover:scale-105' : 'opacity-50 cursor-not-allowed'} shadow-lg relative`}
+            >
+              {sidebarOpen ? <X size={isMobile ? 16 : 18} /> : <Users size={isMobile ? 16 : 18} />}
+              {messages.length > 0 && activeTab !== 'chat' && !sidebarOpen && (
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-[8px] font-bold">{messages.length > 9 ? '9+' : messages.length}</span>
+                </div>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Video Area */}
+        <div className={`flex-1 relative ${isMobile ? '' : 'pb-[100px]'}`}>
+          <VideoGrid
+            localStream={localStream}
+            localStreamVersion={localStreamVersion}
+            screenStream={screenStream}
+            remoteStreams={remoteStreams}
+            remoteStreamVersions={remoteStreamVersions}
+            remoteScreenStreams={remoteScreenStreams}
+            participants={participants}
+            userName={userName}
+            userProfilePicture={null}
+            audioEnabled={audioEnabled}
+            videoEnabled={videoEnabled}
+            screenSharing={screenSharing}
+            viewMode={viewMode}
+            isHost={isHost}
+            userRole={userRole}
+            settings={settings}
+            isMobile={isMobile}
+            setViewMode={setViewMode}
+            setPinnedVideo={setPinnedVideo}
+            pinnedVideo={pinnedVideo}
+          />
+        </div>
+
+        {/* Sidebar */}
+        <MeetingSidebar
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          participants={participants}
+          userName={userName}
+          userProfilePicture={null}
+          isHost={isHost}
+          userRole={userRole}
+          audioEnabled={audioEnabled}
+          videoEnabled={videoEnabled}
+          messages={messages}
+          newMessage={newMessage}
+          setNewMessage={setNewMessage}
+          sendMessage={sendMessage}
+          isMobile={isMobile}
+          settings={settings}
+          socket={socket}
+          roomId={roomId}
+        />
+      </div>
+
+      {/* Bottom Controls */}
+      <div className={`${isMobile ? 'sticky bottom-0 left-0 right-0 z-50 backdrop-blur-xl border-t pb-safe' : ''} ${
+        settings.theme === 'light' 
+          ? isMobile ? 'bg-white/98 border-gray-200' : ''
+          : isMobile ? 'bg-gray-950/98 border-gray-800/50' : ''
+      }`}>
+        <MeetingControls
+          audioEnabled={audioEnabled}
+          videoEnabled={videoEnabled}
+          screenSharing={screenSharing}
+          showScreenShareDropdown={showScreenShareDropdown}
+          showControls={showControls}
+          toggleAudio={toggleAudio}
+          toggleVideo={toggleVideo}
+          flipCamera={flipCamera}
+          toggleScreenShare={toggleScreenShare}
+          stopScreenShare={stopScreenShare}
+          copyInviteLink={copyInviteLink}
+          setSettingsOpen={setSettingsOpen}
+          leaveMeeting={leaveMeeting}
+          isMobile={isMobile}
+          settings={settings}
+        />
+      </div>
+      
+      <SettingsPanel
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={settings}
+        updateSetting={updateSetting}
+        resetSettings={resetSettings}
+      />
+
+      {/* Join Request Popups */}
+      {joinRequests.map((request, index) => (
+        <div key={request.socketId} style={{ top: `${80 + (index * 140)}px` }}>
+          <JoinRequestPopup
+            request={request}
+            onApprove={handleApproveJoin}
+            onReject={handleRejectJoin}
+            settings={settings}
+          />
+        </div>
+      ))}
+
+      {/* Waiting for approval screen overlay */}
+      {isWaiting && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md">
+          <div className={`max-w-md mx-4 p-8 rounded-2xl text-center ${
+            settings.theme === 'light' ? 'bg-white' : 'bg-gray-800'
+          }`}>
+            <div className="mb-6">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-500/20 flex items-center justify-center">
+                <svg className="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+              <h3 className={`text-xl font-semibold mb-2 ${settings.theme === 'light' ? 'text-gray-900' : 'text-white'}`}>
+                Waiting for Host Approval
+              </h3>
+              <p className={`${settings.theme === 'light' ? 'text-gray-600' : 'text-gray-400'}`}>
+                This is a private meeting. The host will review your request shortly.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/')}
+              className={`px-6 py-2 rounded-lg ${
+                settings.theme === 'light'
+                  ? 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
+              }`}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default MeetingPro

@@ -1,0 +1,43 @@
+{
+  "languages": {
+    "en": "English",
+    "es": "Español"
+  },
+  "defaultLanguage": "en",
+  "strings": {
+    "common.startMeeting": { "en": "Start Meeting", "es": "Iniciar reunión" },
+    "common.joinMeeting": { "en": "Join Meeting", "es": "Unirse a la reunión" },
+    "common.cancel": { "en": "Cancel", "es": "Cancelar" },
+    "common.loading": { "en": "Loading...", "es": "Cargando..." },
+
+    "home.createCardDesc": { "en": "Create a new meeting room and invite participants", "es": "Crea una nueva sala de reunión e invita a participantes" },
+    "home.joinCardDesc": { "en": "Enter a meeting ID or paste the full meeting link", "es": "Ingresa un ID de reunión o pega el enlace completo" },
+    "home.roomInputPlaceholder": { "en": "Meeting ID or full meeting link", "es": "ID de reunión o enlace completo" },
+    "home.namePlaceholder": { "en": "Your name", "es": "Tu nombre" },
+    "home.startNewMeeting": { "en": "Start New Meeting", "es": "Iniciar nueva reunión" },
+    "home.errorEnterRoomId": { "en": "Please enter a room ID or meeting link", "es": "Ingresa un ID de sala o enlace de reunión" },
+    "home.errorInvalidRoomId": { "en": "Invalid room ID or meeting link", "es": "ID de sala o enlace no válido" },
+    "home.errorRoomNotFound": { "en": "Room not found. Please check the ID or link.", "es": "Sala no encontrada. Verifica el ID o el enlace." },
+    "home.errorJoinFailed": { "en": "Failed to join room. Please try again.", "es": "No se pudo unir a la sala. Inténtalo de nuevo." },
+    "home.errorCreateFailed": { "en": "Failed to create room. Please try again.", "es": "No se pudo crear la sala. Inténtalo de nuevo." },
+    "home.errorEnterName": { "en": "Please enter your name", "es": "Ingresa tu nombre" },
+    "home.roomCreated": { "en": "Room created successfully!", "es": "¡Sala creada con éxito!" },
+    "home.joiningRoom": { "en": "Joining room...", "es": "Uniéndose a la sala..." },
+
+    "prejoin.readyToJoin": { "en": "Ready to join the meeting?", "es": "¿Listo para unirte a la reunión?" },
+    "prejoin.cameraPreview": { "en": "Camera Preview", "es": "Vista previa de cámara" },
+    "prejoin.cameraOff": { "en": "Camera is off", "es": "La cámara está apagada" },
+    "prejoin.mediaSettings": { "en": "Media Settings", "es": "Configuración de medios" },
+    "prejoin.microphone": { "en": "Microphone", "es": "Micrófono" },
+    "prejoin.camera": { "en": "Camera", "es": "Cámara" },
+    "prejoin.namePlaceholder": { "en": "Enter your name", "es": "Ingresa tu nombre" },
+    "prejoin.nameHelp": { "en": "This is how others will see you", "es": "Así te verán los demás" },
+    "prejoin.host": { "en": "Host", "es": "Anfitrión" },
+    "prejoin.joining": { "en": "Joining...", "es": "Uniéndose..." },
+
+    "meeting.roomLabel": { "en": "Room", "es": "Sala" },
+    "meeting.participants": { "en": "participants", "es": "participantes" },
+
+    "language.label": { "en": "Language", "es": "Idioma" }
+  }
+}

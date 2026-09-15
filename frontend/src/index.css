@@ -1,0 +1,169 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default theme (#2E5BFF) as "r g b" triplets - overwritten at runtime by
+   src/utils/theme.js from branding.js / VITE_APP_PRIMARY_COLOR. */
+:root {
+  --color-primary-50: 245 247 255;
+  --color-primary-100: 234 239 255;
+  --color-primary-200: 203 214 255;
+  --color-primary-300: 171 189 255;
+  --color-primary-400: 119 148 255;
+  --color-primary-500: 77 116 255;
+  --color-primary-600: 46 91 255;
+  --color-primary-700: 39 77 217;
+  --color-primary-800: 32 64 179;
+  --color-primary-900: 25 50 140;
+}
+
+@layer base {
+  * {
+    @apply border-gray-200;
+  }
+  
+  body {
+    @apply bg-gray-900 text-white font-sans antialiased;
+  }
+  
+  html {
+    @apply scroll-smooth;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+  
+  .btn-primary {
+    @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-600 text-white hover:bg-gray-700 focus:ring-gray-500;
+  }
+  
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+  
+  .btn-ghost {
+    @apply bg-transparent text-gray-300 hover:bg-gray-800 hover:text-white focus:ring-gray-500;
+  }
+  
+  .input {
+    @apply flex h-10 w-full rounded-lg border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  
+  .card {
+    @apply rounded-xl border border-gray-700 bg-gray-800 p-6 shadow-lg;
+  }
+  
+  .video-container {
+    @apply relative overflow-hidden rounded-lg bg-gray-800 aspect-video;
+  }
+  
+  .video-overlay {
+    @apply absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent;
+  }
+  
+  .control-btn {
+    @apply flex h-12 w-12 items-center justify-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900;
+  }
+  
+  .control-btn-active {
+    @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+  }
+  
+  .control-btn-inactive {
+    @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+  
+  .control-btn-neutral {
+    @apply bg-gray-600 text-white hover:bg-gray-700 focus:ring-gray-500;
+  }
+  
+  .participant-item {
+    @apply flex items-center justify-between rounded-lg bg-gray-700 p-3 transition-colors hover:bg-gray-600;
+  }
+  
+  .chat-message {
+    @apply mb-3 rounded-lg bg-gray-700 p-3 transition-colors hover:bg-gray-600;
+  }
+  
+  .toast-success {
+    @apply bg-green-600 text-white;
+  }
+  
+  .toast-error {
+    @apply bg-red-600 text-white;
+  }
+  
+  .toast-warning {
+    @apply bg-yellow-600 text-white;
+  }
+  
+  .toast-info {
+    @apply bg-blue-600 text-white;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .glass {
+    @apply bg-white/10 backdrop-blur-md border border-white/20;
+  }
+  
+  .gradient-text {
+    @apply bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent;
+  }
+  
+  .animate-slide-in-right {
+    animation: slideInRight 0.3s ease-out;
+  }
+  
+  @keyframes slideInRight {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+}
+
+/* Mobile app-like optimizations */
+body {
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  -webkit-touch-callout: none;
+}
+
+video {
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
