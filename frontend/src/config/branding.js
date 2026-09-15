@@ -5,10 +5,16 @@ import { API_BASE_URL } from '../utils/constants';
 // rebuild needed) and then by whatever's saved through the admin panel at
 // /admin (backed by the database, so it wins since it's the most recent
 // change made by whoever runs this instance). See main.jsx for when this runs.
+// Exported so Home.jsx can tell "still the untouched default" apart from "a
+// self-hoster set their own tagline/description" - only the former gets
+// translated (there's no way to auto-translate arbitrary custom brand copy).
+export const DEFAULT_TAGLINE = 'Connect, collaborate, create.';
+export const DEFAULT_DESCRIPTION = 'Free, self-hosted video meetings.';
+
 const branding = {
   appName: 'Rumo',
-  tagline: 'Connect, collaborate, create.',
-  description: 'Free, self-hosted video meetings.',
+  tagline: DEFAULT_TAGLINE,
+  description: DEFAULT_DESCRIPTION,
 
   // Icon mark used in the app UI (header, pre-join screen).
   logoIcon: '/brand/icon.svg',

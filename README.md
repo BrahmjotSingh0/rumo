@@ -17,6 +17,14 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 
 **Live docs site:** https://brahmjotsingh0.github.io/rumo/
 
+<p align="center">
+  <img src="docs/assets/screenshots/landing.png" alt="Rumo landing page" width="100%">
+</p>
+<p align="center">
+  <img src="docs/assets/screenshots/meeting.png" alt="Rumo meeting grid view" width="49%">
+  <img src="docs/assets/screenshots/admin.png" alt="Rumo admin settings panel" width="49%">
+</p>
+
 ## Contents
 
 - [Features](#features)

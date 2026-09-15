@@ -210,8 +210,8 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
               <div className="space-y-6">
                 <div>
                   <label className={`block text-sm font-medium ${textClass} mb-3`}>Default Layout</label>
-                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                    {['grid', 'speaker'].map(layout => (
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                    {['grid', 'speaker', 'interview'].map(layout => (
                       <button
                         key={layout}
                         onClick={() => updateSetting('layout', layout)}

@@ -80,7 +80,7 @@ class SocketService {
     socket.on('error', (error) => this.handleError(socket, error));
   }
 
-  async handleJoinRoom(socket, { roomId, userId, userName, isHost, audioEnabled = true, videoEnabled = true, profilePicture = null, role = null, preserveRoomSettings = false }) {
+  async handleJoinRoom(socket, { roomId, userId, userName, isHost, audioEnabled = true, videoEnabled = true, profilePicture = null, role = null }) {
     try {
       // Check if room exists in database
       const roomQuery = `SELECT * FROM "rooms" WHERE "id" = $1`;
@@ -131,27 +131,19 @@ class SocketService {
       // Determine if this user should be host (first person or has hostId)
       const shouldBeHost = participantsResult.rows.length === 0 || isHost;
 
-      // Get or initialize room settings (preserve existing if host rejoining)
-      if (!this.rooms.has(roomId) || !preserveRoomSettings) {
-        // Only reset settings if not preserving or room doesn't exist
-        if (!preserveRoomSettings) {
-          this.rooms.set(roomId, {
-            isPrivate: false,
-            allMuted: false,
-            allCamerasOff: false,
-            allScreenSharesOff: false,
-            chatEnabled: true
-          });
-        } else if (!this.rooms.has(roomId)) {
-          // Room doesn't exist but we want to preserve - create with defaults
-          this.rooms.set(roomId, {
-            isPrivate: false,
-            allMuted: false,
-            allCamerasOff: false,
-            allScreenSharesOff: false,
-            chatEnabled: true
-          });
-        }
+      // Initialize room settings only the first time this room is seen. Every
+      // join after that (guest, approved-from-waiting-room, host rejoin) must
+      // leave existing settings alone - this used to reset them to defaults
+      // on every join, which silently turned private rooms back public and
+      // undid mute-all/chat-disabled the moment anyone else joined.
+      if (!this.rooms.has(roomId)) {
+        this.rooms.set(roomId, {
+          isPrivate: false,
+          allMuted: false,
+          allCamerasOff: false,
+          allScreenSharesOff: false,
+          chatEnabled: true
+        });
       }
       const roomSettings = this.rooms.get(roomId);
 
@@ -951,7 +943,6 @@ class SocketService {
 
   async handleHostRejoin(socket, { roomId, userId, userName, profilePicture, role, audioEnabled, videoEnabled }) {
     try {
-      // Host rejoining - preserve existing room settings
       await this.handleJoinRoom(socket, {
         roomId,
         userId,
@@ -960,8 +951,7 @@ class SocketService {
         audioEnabled,
         videoEnabled,
         profilePicture,
-        role,
-        preserveRoomSettings: true
+        role
       });
     } catch (error) {
       logger.error('Error handling host rejoin:', error);

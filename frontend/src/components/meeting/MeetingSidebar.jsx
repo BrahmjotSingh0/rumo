@@ -345,7 +345,7 @@ const MeetingSidebar = ({
                     {participant.audioEnabled ? <Mic size={16} className="text-green-500" /> : <MicOff size={16} className="text-red-500" />}
                     {participant.videoEnabled ? <Video size={16} className="text-green-500" /> : <VideoOff size={16} className="text-red-500" />}
                   </div>
-                  {isHost && (
+                  {(isHost || userRole === 'co-host') && (
                     <button
                       onClick={(e) => handleThreeDotsClick(e, participant)}
                       className={`p-1.5 ${hoverClass} rounded-lg ${textSecondaryClass} hover:${textClass} transition-all`}

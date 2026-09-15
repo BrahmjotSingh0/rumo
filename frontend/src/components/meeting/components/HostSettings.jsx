@@ -1,4 +1,4 @@
-import { MicOff, MessageSquareOff, Lock, Unlock, VideoOff, MonitorOff, Settings, ChevronDown, ChevronUp } from 'lucide-react'
+import { MicOff, MessageSquare, MessageSquareOff, Lock, Unlock, VideoOff, MonitorOff, Settings, ChevronDown, ChevronUp } from 'lucide-react'
 import { useState } from 'react'
 
 const HostSettings = ({ 
@@ -37,7 +37,7 @@ const HostSettings = ({
       color: 'red'
     },
     {
-      icon: roomSettings.allowChat ? MessageSquareOff : MessageSquareOff,
+      icon: roomSettings.allowChat ? MessageSquare : MessageSquareOff,
       label: 'Chat',
       description: roomSettings.allowChat ? 'Chat is enabled' : 'Chat is disabled',
       enabled: roomSettings.allowChat,

@@ -100,6 +100,7 @@ const MeetingPro = () => {
   const screenStreamRef = useRef(null)
   const userNameRef = useRef(userName)
   const isHostRef = useRef(isHost)
+  const userRoleRef = useRef(userRole)
   const blurProcessorRef = useRef(null)
   const originalVideoTrackRef = useRef(null) // Store original video track
   const noiseSuppressorRef = useRef(null) // Noise suppression processor
@@ -118,7 +119,8 @@ const MeetingPro = () => {
   useEffect(() => {
     userNameRef.current = userName
     isHostRef.current = isHost
-  }, [userName, isHost])
+    userRoleRef.current = userRole
+  }, [userName, isHost, userRole])
 
   useEffect(() => {
     setViewMode(settings.layout || 'grid')
@@ -304,8 +306,7 @@ const MeetingPro = () => {
           userId: socketUserId.current,
           userName: userNameRef.current,
           audioEnabled,
-          videoEnabled,
-          preserveRoomSettings: true // Tell backend to keep existing room settings
+          videoEnabled
         })
       } else {
         currentSocket.emit('request-join', {
@@ -616,12 +617,18 @@ const MeetingPro = () => {
       currentSocket.on('answer', async ({ sender, answer }) => {
         if (!mounted) return
         const pc = peerConnections.current.get(sender)
-        if (pc) {
+        // A duplicate/late-arriving answer for a connection that's already
+        // stable would throw (setRemoteDescription only accepts an answer
+        // while in 'have-local-offer'); ignore it instead of erroring out
+        // and leaving the peer connection stuck without media.
+        if (pc && pc.signalingState === 'have-local-offer') {
           try {
             await pc.setRemoteDescription(new RTCSessionDescription(answer))
           } catch (error) {
             console.error('Error handling answer:', error)
           }
+        } else if (pc) {
+          addDebugLog(`[PEER] Ignoring stale answer from ${sender?.substring(0, 8)} (state: ${pc.signalingState})`, 'warning')
         }
       })
 
@@ -695,7 +702,7 @@ const MeetingPro = () => {
       currentSocket.on('all-participants-muted', ({ by }) => {
         if (!mounted) return
         // Mute the current user if they're not host/co-host
-        if (!isHost && userRole !== 'co-host') {
+        if (!isHostRef.current && userRoleRef.current !== 'co-host') {
           setAudioEnabled(false)
           if (localStream) localStream.getAudioTracks().forEach(track => track.enabled = false)
         }
@@ -715,7 +722,7 @@ const MeetingPro = () => {
       currentSocket.on('all-cameras-disabled', ({ by }) => {
         if (!mounted) return
         // Disable video for current user if they're not host/co-host
-        if (!isHost && userRole !== 'co-host') {
+        if (!isHostRef.current && userRoleRef.current !== 'co-host') {
           setVideoEnabled(false)
           if (localStream) localStream.getVideoTracks().forEach(track => track.enabled = false)
         }
@@ -728,11 +735,11 @@ const MeetingPro = () => {
         if (settings.chatEnabled === false) {
           // Chat is disabled, will be handled by MeetingSidebar
         }
-        if (settings.allMuted && !isHost && userRole !== 'co-host') {
+        if (settings.allMuted && !isHostRef.current && userRoleRef.current !== 'co-host') {
           setAudioEnabled(false)
           if (localStream) localStream.getAudioTracks().forEach(track => track.enabled = false)
         }
-        if (settings.allCamerasOff && !isHost && userRole !== 'co-host') {
+        if (settings.allCamerasOff && !isHostRef.current && userRoleRef.current !== 'co-host') {
           setVideoEnabled(false)
           if (localStream) localStream.getVideoTracks().forEach(track => track.enabled = false)
         }
@@ -767,7 +774,7 @@ const MeetingPro = () => {
       currentSocket.on('all-screenshares-disabled', ({ by }) => {
         if (!mounted) return
         // Stop screen sharing for current user if they're not host/co-host
-        if (!isHost && userRole !== 'co-host' && screenSharing) {
+        if (!isHostRef.current && userRoleRef.current !== 'co-host' && screenSharing) {
           stopScreenShare()
         }
         toast(`All screen shares stopped by ${by}`)
@@ -933,7 +940,13 @@ const MeetingPro = () => {
       peerConnections.current.forEach(pc => pc.close())
       peerConnections.current.clear()
     }
-  }, [roomId, roomInfoLoaded, roomInfo, isHost]) // Wait for room info before connecting
+    // isHost is intentionally excluded: this effect's own 'host-status'/'new-host'
+    // handlers are what set it, so depending on it here would tear down and
+    // recreate the whole socket/peer-connection set the moment the server
+    // confirms host status for every single participant, right as they join
+    // (isHostRef above exists precisely so this effect can read the current
+    // value without depending on it).
+  }, [roomId, roomInfoLoaded, roomInfo]) // Wait for room info before connecting
 
   // Create peer connection
   const createPeerConnection = async (socketId, stream = null, socketRef = null) => {
@@ -2409,7 +2422,7 @@ const MeetingPro = () => {
                 {!isMobile && (
                   <>
                     <span className={`${secondaryTextClasses} text-xs`}>•</span>
-                    <span className={`${secondaryTextClasses} text-xs`}>{participants.length + 1} participants</span>
+                    <span className={`${secondaryTextClasses} text-xs`}>{participants.length + 1} {participants.length === 0 ? 'participant' : 'participants'}</span>
                   </>
                 )}
               </div>

@@ -51,52 +51,6 @@ export const AUDIO_CONSTRAINTS = {
   sampleRate: 48000
 };
 
-// Socket Events
-export const SOCKET_EVENTS = {
-  // Connection
-  CONNECT: 'connect',
-  DISCONNECT: 'disconnect',
-  RECONNECT: 'reconnect',
-  
-  // Room Management
-  JOIN_ROOM: 'join-room',
-  LEAVE_ROOM: 'leave-room',
-  ROOM_USERS: 'room-users',
-  USER_JOINED: 'user-joined',
-  USER_LEFT: 'user-left',
-  
-  // WebRTC Signaling
-  OFFER: 'offer',
-  ANSWER: 'answer',
-  ICE_CANDIDATE: 'ice-candidate',
-  
-  // Media Controls
-  TOGGLE_AUDIO: 'toggle-audio',
-  TOGGLE_VIDEO: 'toggle-video',
-  TOGGLE_SCREEN_SHARE: 'toggle-screen-share',
-  
-  // Chat
-  SEND_MESSAGE: 'send-message',
-  NEW_MESSAGE: 'new-message',
-  
-  // Host Controls
-  MUTE_USER: 'mute-user',
-  REMOVE_USER: 'remove-user',
-  FORCE_MUTE: 'force-mute',
-  REMOVED_FROM_ROOM: 'removed-from-room',
-  NEW_HOST: 'new-host',
-  
-  // Quality & Stats
-  CONNECTION_QUALITY: 'connection-quality',
-  NETWORK_QUALITY: 'network-quality',
-  USER_CONNECTION_QUALITY: 'user-connection-quality',
-  
-  // Errors
-  ERROR: 'error',
-  WEBRTC_ERROR: 'webrtc-error',
-  RATE_LIMIT_EXCEEDED: 'rate-limit-exceeded'
-};
-
 // UI Constants
 export const UI_CONFIG = {
   BRAND_COLOR: '#3b82f6',

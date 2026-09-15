@@ -48,10 +48,12 @@ const VideoGrid = ({
     }
   }, [localStream, screenStream, localStreamVersion, viewMode]) // Add viewMode to re-attach stream when switching modes
 
-  // Update main video ref when it changes (for speaker view)
+  // Update main video ref when it changes (for speaker view, and interview
+  // mode on mobile, which falls back to this same speaker-style layout - see
+  // the `viewMode === 'interview' && !isMobile` guard below)
   useEffect(() => {
-    
-    if (viewMode === 'speaker' && mainVideoRef.current) {
+    const usesMainVideo = viewMode === 'speaker' || (viewMode === 'interview' && isMobile)
+    if (usesMainVideo && mainVideoRef.current) {
       const streamToUse = mainVideo.stream
       if (streamToUse) {
         mainVideoRef.current.srcObject = streamToUse
@@ -67,7 +69,7 @@ const VideoGrid = ({
       } else {
       }
     }
-  }, [viewMode, mainVideo.stream, mainVideo.isYou, mainVideo.socketId, localStreamVersion, videoEnabled])
+  }, [viewMode, isMobile, mainVideo.stream, mainVideo.isYou, mainVideo.socketId, localStreamVersion, videoEnabled])
 
   const handlePin = (videoInfo) => {
     setPinnedVideo(videoInfo)
@@ -143,7 +145,9 @@ const VideoGrid = ({
     return 0
   })
 
-  // Interview Mode - Desktop only (mobile uses grid)
+  // Interview Mode - Desktop only. On mobile this falls through to the
+  // speaker-view layout below (not the grid), so the main-video effect above
+  // has to account for that case too.
   if (viewMode === 'interview' && !isMobile) {
     // Separate hosts/co-hosts from regular participants
     const hosts = []

@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import Button from './ui/Button';
 import Input from './ui/Input';
 import LanguageSwitcher from './ui/LanguageSwitcher';
-import branding from '../config/branding';
+import branding, { DEFAULT_TAGLINE, DEFAULT_DESCRIPTION } from '../config/branding';
 import { useTranslation } from '../i18n/I18nProvider';
 import api from '../utils/api';
 
@@ -108,6 +108,11 @@ const Home = () => {
     if (e.key === 'Enter') joinRoom();
   };
 
+  // Only translate the tagline/description when they're still the untouched
+  // default - a self-hoster's own custom branding copy is shown as-is.
+  const tagline = branding.tagline === DEFAULT_TAGLINE ? t('home.defaultTagline') : branding.tagline;
+  const description = branding.description === DEFAULT_DESCRIPTION ? t('home.defaultDescription') : branding.description;
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-900">
       {/* Header */}
@@ -126,10 +131,10 @@ const Home = () => {
         <section className="px-4 sm:px-6 py-12 sm:py-20">
           <div className="max-w-md mx-auto text-center">
             <h1 className="text-2xl sm:text-3xl font-bold text-white text-balance">
-              {branding.tagline}
+              {tagline}
             </h1>
             <p className="mt-3 text-sm sm:text-base text-gray-400">
-              {branding.description}
+              {description}
             </p>
           </div>
 
