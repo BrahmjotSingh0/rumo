@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quick start guide · Rumo</title>
+<meta name="description" content="How to install and configure Rumo: one-command Docker setup, manual setup without Docker, branding, languages, TURN servers, and HTTPS notes.">
+<link rel="canonical" href="https://brahmjotsingh0.github.io/rumo/quickstart.html">
+<meta name="robots" content="index, follow">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Rumo">
+<meta property="og:title" content="Quick start guide · Rumo">
+<meta property="og:description" content="One-command Docker setup, manual setup, branding, languages, TURN servers, and HTTPS notes.">
+<meta property="og:url" content="https://brahmjotsingh0.github.io/rumo/quickstart.html">
+<meta property="og:image" content="https://brahmjotsingh0.github.io/rumo/assets/brand/logo.svg">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Quick start guide · Rumo">
+<meta name="twitter:description" content="One-command Docker setup, manual setup, branding, languages, TURN servers, and HTTPS notes.">
+<meta name="twitter:image" content="https://brahmjotsingh0.github.io/rumo/assets/brand/logo.svg">
+
+<link rel="icon" type="image/svg+xml" href="assets/brand/icon.svg">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/brand/icon.svg" alt=""> Rumo</a>
+    <div class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html" class="active">Quick start</a>
+      <a href="api.html">API reference</a>
+      <a href="https://github.com/BrahmjotSingh0/rumo" class="gh-link">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="page-head">
+  <div class="wrap">
+    <h1>Quick start guide</h1>
+    <p>Get a Rumo instance running, then configure it to look and speak the way you want.</p>
+  </div>
+</header>
+
+<main>
+<section>
+  <div class="wrap">
+    <nav class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        <li><a href="#docker">Docker (recommended)</a></li>
+        <li><a href="#manual">Manual setup</a></li>
+        <li><a href="#https">HTTPS requirement</a></li>
+        <li><a href="#branding">Branding</a></li>
+        <li><a href="#languages">Languages</a></li>
+        <li><a href="#turn">TURN server</a></li>
+        <li><a href="#security">Security notes</a></li>
+      </ul>
+    </nav>
+
+    <h2 id="docker">Docker (recommended)</h2>
+    <p class="section-sub">Requires <a href="https://docs.docker.com/get-docker/">Docker</a> and Docker Compose.</p>
+    <pre><code>git clone https://github.com/BrahmjotSingh0/rumo.git
+cd rumo
+./install.sh      # Windows: .\install.ps1</code></pre>
+    <p>That script generates <code>.env</code> with a randomly generated database password (if one doesn't already exist), then runs <code>docker compose up -d --build</code>. To configure things yourself instead, run <code>cp .env.example .env</code>, edit it, then <code>docker compose up -d --build</code>.</p>
+    <p>Frontend on <code>http://localhost:5173</code>, backend on <code>http://localhost:5000</code>. The Postgres schema is applied automatically on first run.</p>
+
+    <h2 id="manual">Manual setup (without Docker)</h2>
+    <p class="section-sub">Requires Node.js 22+ and PostgreSQL.</p>
+    <pre><code># 1. Create the database and load the schema
+createdb rumo
+psql rumo &lt; backend/database/schema.sql
+
+# 2. Backend
+cd backend
+cp .env.example .env   # fill in DB credentials
+npm install
+npm run dev             # http://localhost:5000
+
+# 3. Frontend (new terminal)
+cd frontend
+cp .env.example .env
+npm install
+npm run dev             # http://localhost:5173</code></pre>
+    <p>See the <a href="https://github.com/BrahmjotSingh0/rumo/blob/main/backend/README.md">backend</a> and <a href="https://github.com/BrahmjotSingh0/rumo/blob/main/frontend/README.md">frontend</a> READMEs for the full environment variable reference and project layout.</p>
+
+    <div class="note" id="https">
+      <strong>HTTPS requirement:</strong> camera/microphone access requires HTTPS in the browser (Chrome and Firefox both block <code>getUserMedia</code> on plain HTTP), except on <code>localhost</code>. For a real deployment, put a reverse proxy (Caddy, nginx, Cloudflare Tunnel, etc.) with a TLS certificate in front of <code>frontend</code>/<code>backend</code>, and point <code>CORS_ORIGIN</code>, <code>VITE_API_URL</code>, and <code>VITE_SOCKET_URL</code> at the public HTTPS URLs.
+    </div>
+
+    <h2 id="branding">Branding</h2>
+    <p>Edit <code>frontend/public/branding.json</code> to change the app name, tagline, description, logo paths, and accent color:</p>
+    <pre><code>{
+  "appName": "Rumo",
+  "tagline": "Connect, collaborate, create.",
+  "description": "Free, self-hosted video meetings.",
+  "logoIcon": "/brand/icon.svg",
+  "logoFull": "/brand/logo.svg",
+  "primaryColor": "#2E5BFF"
+}</code></pre>
+    <p>This file is fetched at runtime, so re-branding an already-built/deployed instance is just editing it (or bind-mounting your own version over it in Docker); no rebuild needed. <code>primaryColor</code> drives a full 50-900 Tailwind shade scale computed on load, so buttons, badges, and focus rings across the landing and pre-join screens follow it automatically. Logo files live in <code>frontend/public/brand/</code>; replace them with your own SVG/PNG and update the paths above.</p>
+    <div class="note">Scope note: the accent-color retheming covers the landing and pre-join screens. The in-call meeting UI is a large, separate surface that still uses fixed colors, aside from its own existing light/dark toggle in the in-call settings panel.</div>
+
+    <h2 id="languages">Languages</h2>
+    <p>UI strings live in <code>frontend/src/i18n/lang.json</code>: one file, each string keyed by language code.</p>
+    <pre><code>"common.joinMeeting": { "en": "Join Meeting", "es": "Unirse a la reunión" }</code></pre>
+    <p>To add a language, add its code and label to <code>languages</code>, then add that code to every entry under <code>strings</code>. The language switcher on the home screen picks it up automatically. Currently ships with English and Spanish covering the landing and pre-join screens.</p>
+
+    <h2 id="turn">TURN server (optional)</h2>
+    <p>STUN (included, free, via Google's public servers) is enough for most networks. If some participants are behind restrictive NATs/firewalls and can't connect, run your own TURN server (e.g. <a href="https://github.com/coturn/coturn">coturn</a>) and set <code>TURN_SERVERS</code> (backend) plus <code>VITE_TURN_URL</code>, <code>VITE_TURN_USERNAME</code>, <code>VITE_TURN_CREDENTIAL</code> (frontend).</p>
+
+    <h2 id="security">Security notes</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><td>SQL</td><td>All queries are parameterized (<code>pg</code> placeholders); no string-built queries.</td></tr>
+        <tr><td>Rate limiting</td><td>On by default for the REST API (<code>RATE_LIMIT_*</code> env vars).</td></tr>
+        <tr><td>Headers</td><td><code>helmet</code> sets standard security headers. Content-Security-Policy is off by default since a strict one is easy to break with WebRTC/media/websocket connections.</td></tr>
+        <tr><td>Sessions</td><td>None. No cookies, no accounts, so <code>CORS_CREDENTIALS</code> defaults to <code>false</code>.</td></tr>
+        <tr><td>TLS</td><td>Not handled here; put a reverse proxy in front for real deployments.</td></tr>
+        <tr><td>Secrets</td><td><code>.env</code>/<code>.env.production</code> are gitignored everywhere in the repo. Never commit real credentials.</td></tr>
+      </table>
+    </div>
+    <p>Host status has no cryptographic backing: whoever creates a room, or is first to join it, becomes host for that session. This is the same trust model as most link-based meeting tools (anyone with the link can join).</p>
+  </div>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    Rumo is open source under the MIT license. <a href="https://github.com/BrahmjotSingh0/rumo">github.com/BrahmjotSingh0/rumo</a>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API reference · Rumo</title>
+<meta name="description" content="Rumo API reference: REST endpoints for room lifecycle (create, look up, list rooms) and the full Socket.IO event reference for signaling, chat, and host controls.">
+<link rel="canonical" href="https://brahmjotsingh0.github.io/rumo/api.html">
+<meta name="robots" content="index, follow">
+
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Rumo">
+<meta property="og:title" content="API reference · Rumo">
+<meta property="og:description" content="REST endpoints for room lifecycle plus the full Socket.IO event reference for signaling, chat, and host controls.">
+<meta property="og:url" content="https://brahmjotsingh0.github.io/rumo/api.html">
+<meta property="og:image" content="https://brahmjotsingh0.github.io/rumo/assets/brand/logo.svg">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="API reference · Rumo">
+<meta name="twitter:description" content="REST endpoints for room lifecycle plus the full Socket.IO event reference for signaling, chat, and host controls.">
+<meta name="twitter:image" content="https://brahmjotsingh0.github.io/rumo/assets/brand/logo.svg">
+
+<link rel="icon" type="image/svg+xml" href="assets/brand/icon.svg">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/brand/icon.svg" alt=""> Rumo</a>
+    <div class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="quickstart.html">Quick start</a>
+      <a href="api.html" class="active">API reference</a>
+      <a href="https://github.com/BrahmjotSingh0/rumo" class="gh-link">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="page-head">
+  <div class="wrap">
+    <h1>API reference</h1>
+    <p>REST for room lifecycle, Socket.IO for everything that happens in real time inside a meeting. There's no authentication layer; see <a href="quickstart.html#security">security notes</a> for the trust model.</p>
+  </div>
+</header>
+
+<main>
+<section>
+  <div class="wrap">
+    <nav class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        <li><a href="#rest">REST endpoints</a></li>
+        <li><a href="#joining">Socket.IO: joining</a></li>
+        <li><a href="#waiting-room">Waiting room</a></li>
+        <li><a href="#signaling">WebRTC signaling</a></li>
+        <li><a href="#media">Media state</a></li>
+        <li><a href="#chat">Chat</a></li>
+        <li><a href="#host-controls">Host controls</a></li>
+        <li><a href="#quality">Quality monitoring</a></li>
+        <li><a href="#leaving">Leaving / host transfer</a></li>
+        <li><a href="#errors">Errors</a></li>
+      </ul>
+    </nav>
+
+    <h2 id="rest">REST endpoints</h2>
+    <p class="section-sub">Base URL is whatever <code>VITE_API_URL</code>/<code>CORS_ORIGIN</code> point at (<code>http://localhost:5000</code> by default).</p>
+
+    <h3><code>POST /api/rooms</code>: create a room</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Field</th><th>Type</th><th>Required</th><th>Notes</th></tr>
+        <tr><td><code>title</code></td><td>string</td><td>no</td><td>1-255 chars, defaults to "Quick Meeting"</td></tr>
+        <tr><td><code>maxParticipants</code></td><td>integer</td><td>no</td><td>2-100, default 50</td></tr>
+        <tr><td><code>password</code></td><td>string</td><td>no</td><td>4-50 chars (stored but not currently enforced by the join flow)</td></tr>
+      </table>
+    </div>
+    <pre><code>{
+  "success": true,
+  "data": {
+    "id": "b6b1e2b0-...",
+    "roomCode": "ABC-123-XYZ",
+    "title": "Quick Meeting",
+    "hostId": "b6b1e2b0-...",
+    "maxParticipants": 50,
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  }
+}</code></pre>
+    <p>Use <code>data.id</code> as the room identifier everywhere else: URLs, the other endpoints, Socket.IO's <code>roomId</code>.</p>
+
+    <h3><code>GET /api/rooms/:id</code>: room info + live participant count</h3>
+    <pre><code>{
+  "success": true,
+  "data": {
+    "id": "b6b1e2b0-...",
+    "roomCode": "ABC-123-XYZ",
+    "title": "Quick Meeting",
+    "hostId": "b6b1e2b0-...",
+    "hostName": "Ann",
+    "maxParticipants": 50,
+    "status": "active",
+    "participantCount": 2,
+    "participants": [
+      { "id": "...", "name": "Ann", "isHost": true, "joinedAt": "..." }
+    ],
+    "createdAt": "...",
+    "startedAt": null
+  }
+}</code></pre>
+    <p><code>404</code> if the room doesn't exist. <code>hostName</code> reflects whoever currently holds host status (it can change via host transfer), not the original creator.</p>
+
+    <div class="table-wrap">
+      <table>
+        <tr><th>Endpoint</th><th>Purpose</th></tr>
+        <tr><td><code>GET /api/rooms/code/:roomCode</code></td><td>Same shape as above, looked up by the human-readable room code.</td></tr>
+        <tr><td><code>GET /api/rooms</code></td><td>Paginated list of active rooms. Query params: <code>page</code> (default 1), <code>limit</code> (default 10).</td></tr>
+        <tr><td><code>PATCH /api/rooms/:id/status</code></td><td>Body: <code>{ "status": "active" | "ended" | "scheduled" }</code>.</td></tr>
+        <tr><td><code>DELETE /api/rooms/:id</code></td><td>Ends a room (sets status to <code>ended</code>); doesn't delete history.</td></tr>
+        <tr><td><code>GET /api/rooms/:id/analytics</code></td><td>Aggregate stats (participant/message counts, duration) from the <code>room_analytics</code> view.</td></tr>
+        <tr><td><code>GET /health</code></td><td>Health check: DB connectivity, memory/CPU, uptime. Used by Docker's healthcheck and load balancers.</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <h2>Socket.IO</h2>
+    <p class="section-sub">Connect to the same origin as the REST API. <code>roomId</code> below is always the UUID from <code>POST /api/rooms</code>. There are no accounts: every participant is identified by whatever <code>userName</code> they send when joining, plus the socket's own <code>socket.id</code> for the life of that connection.</p>
+    <div class="note">Host status is server-computed on join; never trust a client-asserted <code>isHost</code> for anything security-sensitive.</div>
+
+    <h3 id="joining">Joining</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event (client to server)</th><th>Payload</th><th>Behavior</th></tr>
+        <tr><td><code>request-join</code></td><td><code>{ roomId, userName, audioEnabled, videoEnabled }</code></td><td>Normal join path. Joins immediately if the room is empty or not private; otherwise the caller enters the waiting room.</td></tr>
+        <tr><td><code>host-rejoin</code></td><td><code>{ roomId, userId, userName, audioEnabled, videoEnabled }</code></td><td>Used when a client's local state says it was host before (e.g. after a refresh); skips the waiting room. Client-trusted, not verified against any stored identity.</td></tr>
+        <tr><td><code>leave-room</code></td><td>(none)</td><td>Leaves the current room.</td></tr>
+      </table>
+    </div>
+    <p>On a successful join, the server emits to the joining socket only:</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event (server to client)</th><th>Payload</th></tr>
+        <tr><td><code>room-users</code></td><td>array of other current participants</td></tr>
+        <tr><td><code>room-settings</code></td><td><code>{ isPrivate, allMuted, allCamerasOff, allScreenSharesOff, chatEnabled }</code></td></tr>
+        <tr><td><code>host-status</code></td><td><code>{ isHost: boolean }</code>: the authoritative answer to "am I host." Persist it (keyed by room) to reconnect as host later.</td></tr>
+      </table>
+    </div>
+    <p>...and to everyone else already in the room: <code>user-joined</code> (the new participant's info) and <code>participant-list-updated</code> (full current list).</p>
+
+    <h3 id="waiting-room">Waiting room (private rooms only)</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event</th><th>Direction</th><th>Payload</th></tr>
+        <tr><td><code>waiting-for-approval</code></td><td>to joining client</td><td><code>{ message }</code></td></tr>
+        <tr><td><code>join-request</code></td><td>to host/co-host sockets</td><td><code>{ socketId, userName, profilePicture, timestamp }</code></td></tr>
+        <tr><td><code>approve-join</code></td><td>client to server</td><td><code>{ targetSocketId }</code> (host/co-host only)</td></tr>
+        <tr><td><code>reject-join</code></td><td>client to server</td><td><code>{ targetSocketId }</code></td></tr>
+        <tr><td><code>join-approved</code> / <code>join-rejected</code></td><td>to waiting client</td><td><code>{ by, message? }</code></td></tr>
+      </table>
+    </div>
+
+    <h3 id="signaling">WebRTC signaling</h3>
+    <p>Plain relay: the server never inspects SDP/ICE contents, just forwards by <code>target</code> socket id.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event</th><th>Payload</th></tr>
+        <tr><td><code>offer</code></td><td><code>{ target, offer, metadata }</code>, relayed as <code>{ sender, offer, metadata, timestamp }</code></td></tr>
+        <tr><td><code>answer</code></td><td><code>{ target, answer, metadata }</code>, relayed as <code>{ sender, answer, metadata, timestamp }</code></td></tr>
+        <tr><td><code>ice-candidate</code></td><td><code>{ target, candidate }</code>, relayed as <code>{ sender, candidate, timestamp }</code></td></tr>
+        <tr><td><code>connection-state-change</code></td><td><code>{ target, state }</code>, relayed as <code>peer-connection-state: { sender, state, timestamp }</code></td></tr>
+      </table>
+    </div>
+    <p>On failure the sender gets back <code>webrtc-error: { type, error }</code>.</p>
+
+    <h3 id="media">Media state</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event (client to server)</th><th>Payload</th><th>Broadcast to room as</th></tr>
+        <tr><td><code>toggle-audio</code></td><td><code>{ roomId, enabled }</code></td><td><code>user-audio-toggle: { userId, socketId, enabled }</code></td></tr>
+        <tr><td><code>toggle-video</code></td><td><code>{ roomId, enabled }</code></td><td><code>user-video-toggle: { userId, socketId, enabled }</code></td></tr>
+        <tr><td><code>toggle-screen-share</code></td><td><code>{ roomId, enabled, quality }</code></td><td><code>user-screen-share: { userId, socketId, enabled, quality, timestamp }</code></td></tr>
+        <tr><td><code>camera-flipped</code></td><td><code>{ roomId, facingMode, trackId }</code></td><td><code>camera-flipped: { userId, socketId, facingMode, trackId, timestamp }</code></td></tr>
+      </table>
+    </div>
+
+    <h3 id="chat">Chat</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event</th><th>Direction</th><th>Payload</th></tr>
+        <tr><td><code>send-message</code></td><td>client to server</td><td><code>{ roomId, message, userName, type? }</code>, rate-limited to 30/min per socket (over the limit gets <code>rate-limit-exceeded: { type: 'chat' }</code>)</td></tr>
+        <tr><td><code>new-message</code></td><td>to room</td><td>stored <code>{ id, userId, userName, message, type, timestamp }</code></td></tr>
+        <tr><td><code>delete-message</code></td><td>client to server (host only)</td><td><code>{ roomId, messageId }</code></td></tr>
+        <tr><td><code>message-deleted</code></td><td>to room</td><td><code>{ messageId }</code></td></tr>
+      </table>
+    </div>
+
+    <h3 id="host-controls">Host controls</h3>
+    <p>All of these require the caller to be host (or co-host, where noted); otherwise the server replies with <code>error: { message }</code> and does nothing.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event</th><th>Who</th><th>Payload</th><th>Effect</th></tr>
+        <tr><td><code>mute-participant</code></td><td>host/co-host</td><td><code>{ roomId, targetSocketId }</code></td><td>target gets <code>force-mute</code>, room gets <code>user-audio-toggle</code></td></tr>
+        <tr><td><code>disable-video</code></td><td>host/co-host</td><td><code>{ roomId, targetSocketId }</code></td><td>target gets <code>force-video-off</code>, room gets <code>user-video-toggle</code></td></tr>
+        <tr><td><code>stop-screenshare</code></td><td>host/co-host</td><td><code>{ roomId, targetSocketId }</code></td><td>target gets <code>force-stop-screenshare</code>, room gets <code>user-screen-share</code></td></tr>
+        <tr><td><code>kick-participant</code></td><td>host/co-host</td><td><code>{ roomId, targetSocketId }</code></td><td>target gets <code>kicked-from-room</code>, then is disconnected</td></tr>
+        <tr><td><code>mute-all</code></td><td>host/co-host</td><td><code>{ roomId, enabled }</code></td><td>forces mute on everyone except host/co-hosts; room gets <code>all-participants-muted</code></td></tr>
+        <tr><td><code>toggle-chat</code></td><td>host/co-host</td><td><code>{ roomId, enabled }</code></td><td>room gets <code>chat-status-changed</code></td></tr>
+        <tr><td><code>disable-all-cameras</code></td><td>host/co-host</td><td><code>{ roomId, enabled }</code></td><td>room gets <code>all-cameras-disabled</code></td></tr>
+        <tr><td><code>disable-all-screenshares</code></td><td>host/co-host</td><td><code>{ roomId, enabled }</code></td><td>room gets <code>all-screenshares-disabled</code></td></tr>
+        <tr><td><code>make-cohost</code></td><td>host only</td><td><code>{ roomId, targetSocketId }</code></td><td>target gets <code>role-changed</code>, room gets <code>participant-role-updated</code></td></tr>
+        <tr><td><code>remove-cohost</code></td><td>host only</td><td><code>{ roomId, targetSocketId }</code></td><td>same, with <code>role: 'participant'</code></td></tr>
+        <tr><td><code>set-room-type</code></td><td>host only</td><td><code>{ roomId, isPrivate }</code></td><td>room gets <code>room-type-changed</code>; controls whether new joiners hit the waiting room</td></tr>
+      </table>
+    </div>
+    <p>Legacy/simpler variants kept for compatibility: <code>mute-user</code> / <code>remove-user</code> (by <code>targetUserId</code>), <code>mute-all-users</code>.</p>
+
+    <h3 id="quality">Quality monitoring</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event</th><th>Direction</th><th>Payload</th></tr>
+        <tr><td><code>connection-quality</code></td><td>client to server</td><td>arbitrary data, relayed as <code>user-connection-quality: { userId, socketId, quality }</code></td></tr>
+        <tr><td><code>network-quality</code></td><td>client to server</td><td><code>{ roomId, stats }</code>, relayed as <code>user-network-quality: { userId, socketId, stats }</code></td></tr>
+      </table>
+    </div>
+
+    <h3 id="leaving">Leaving / host transfer</h3>
+    <p>When a host disconnects or leaves, the server picks the next participant (join order) as the new host and emits <code>new-host: { hostId, socketId, hostName }</code> to the room. Everyone else gets <code>user-left: { userId, socketId, reason }</code> when any participant leaves.</p>
+
+    <h3 id="errors">Errors</h3>
+    <p>Most handlers emit <code>error: { message }</code> back to the caller on failure (permission denied, room not found, etc). WebRTC-specific failures use <code>webrtc-error: { type, error }</code> instead.</p>
+  </div>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    Rumo is open source under the MIT license. <a href="https://github.com/BrahmjotSingh0/rumo">github.com/BrahmjotSingh0/rumo</a>
+  </div>
+</footer>
+
+</body>
+</html>

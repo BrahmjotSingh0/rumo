@@ -3,102 +3,58 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rumo: self-hosted video meetings</title>
-<meta name="description" content="Free, self-hosted video meeting app. No accounts, no per-seat pricing, no third-party platform.">
+<title>Rumo: free, self-hosted video meetings</title>
+<meta name="description" content="Rumo is a free, self-hosted video meeting app. No accounts, no per-seat pricing, no third-party platform. Guest-based rooms, host controls, configurable branding, built-in i18n.">
+<link rel="canonical" href="https://brahmjotsingh0.github.io/rumo/">
+<meta name="robots" content="index, follow">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Rumo">
+<meta property="og:title" content="Rumo: free, self-hosted video meetings">
+<meta property="og:description" content="No accounts, no per-seat pricing, no third-party platform. Guest-based rooms, host controls, configurable branding, built-in i18n.">
+<meta property="og:url" content="https://brahmjotsingh0.github.io/rumo/">
+<meta property="og:image" content="https://brahmjotsingh0.github.io/rumo/assets/brand/logo.svg">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Rumo: free, self-hosted video meetings">
+<meta name="twitter:description" content="No accounts, no per-seat pricing, no third-party platform. Guest-based rooms, host controls, configurable branding, built-in i18n.">
+<meta name="twitter:image" content="https://brahmjotsingh0.github.io/rumo/assets/brand/logo.svg">
+
 <link rel="icon" type="image/svg+xml" href="assets/brand/icon.svg">
-<style>
-  :root {
-    --bg: #0b0e14;
-    --bg-elevated: #11151f;
-    --border: #1f2632;
-    --text: #e7ebf3;
-    --text-dim: #9aa4b8;
-    --primary: #2E5BFF;
-    --primary-light: #6c8bff;
-    --radius: 14px;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    line-height: 1.6;
-  }
-  a { color: var(--primary-light); }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+<link rel="stylesheet" href="assets/style.css">
 
-  header.hero {
-    padding: 96px 0 64px;
-    text-align: center;
-    background:
-      radial-gradient(600px 300px at 50% -10%, rgba(46,91,255,0.25), transparent 70%),
-      var(--bg);
-  }
-  .logo { width: 88px; height: 88px; }
-  h1 { font-size: 2.75rem; margin: 24px 0 8px; }
-  .tagline { font-size: 1.25rem; color: var(--text-dim); margin: 0 0 32px; }
-
-  .badges { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 32px; }
-  .badges img { height: 20px; }
-
-  .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-  .btn {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 12px 22px; border-radius: 999px; font-weight: 600;
-    text-decoration: none; font-size: 0.95rem;
-    transition: transform 0.15s ease, opacity 0.15s ease;
-  }
-  .btn:hover { transform: translateY(-1px); }
-  .btn-primary { background: var(--primary); color: white; }
-  .btn-secondary { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); }
-
-  section { padding: 56px 0; }
-  section.alt { background: var(--bg-elevated); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-  h2 { font-size: 1.75rem; margin-bottom: 8px; }
-  .section-sub { color: var(--text-dim); margin-top: 0; margin-bottom: 32px; }
-
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
-  .card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 22px;
-  }
-  section.alt .card { background: var(--bg); }
-  .card h3 { margin: 0 0 8px; font-size: 1.05rem; }
-  .card p { margin: 0; color: var(--text-dim); font-size: 0.95rem; }
-
-  pre {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 20px 24px;
-    overflow-x: auto;
-    font-size: 0.9rem;
-  }
-  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  :not(pre) > code {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 2px 6px;
-    font-size: 0.9em;
-  }
-
-  .links { display: flex; gap: 20px; flex-wrap: wrap; }
-  .links a { text-decoration: none; font-weight: 600; }
-  .links a:hover { text-decoration: underline; }
-
-  footer { padding: 40px 0 64px; text-align: center; color: var(--text-dim); font-size: 0.9rem; }
-  footer a { color: var(--text-dim); }
-</style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Rumo",
+  "applicationCategory": "CommunicationApplication",
+  "operatingSystem": "Linux, Docker",
+  "description": "Free, self-hosted video meeting app built with WebRTC, Socket.IO, React, and Postgres. No accounts, no per-seat pricing.",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "license": "https://github.com/BrahmjotSingh0/rumo/blob/main/LICENSE",
+  "url": "https://brahmjotsingh0.github.io/rumo/",
+  "sameAs": ["https://github.com/BrahmjotSingh0/rumo"]
+}
+</script>
 </head>
 <body>
 
+<nav class="topbar">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/brand/icon.svg" alt=""> Rumo</a>
+    <div class="nav-links">
+      <a href="index.html" class="active">Home</a>
+      <a href="quickstart.html">Quick start</a>
+      <a href="api.html">API reference</a>
+      <a href="https://github.com/BrahmjotSingh0/rumo" class="gh-link">GitHub</a>
+    </div>
+  </div>
+</nav>
+
 <header class="hero">
   <div class="wrap">
-    <img class="logo" src="assets/brand/icon.svg" alt="Rumo">
+    <img class="logo" src="assets/brand/icon.svg" alt="Rumo logo">
     <h1>Rumo</h1>
     <p class="tagline">Free, self-hosted video meetings. No accounts, no per-seat pricing, no third-party platform.</p>
 
@@ -109,13 +65,14 @@
     </div>
 
     <div class="cta-row">
-      <a class="btn btn-primary" href="https://github.com/BrahmjotSingh0/rumo">View on GitHub</a>
-      <a class="btn btn-secondary" href="#quick-start">Quick start</a>
-      <a class="btn btn-secondary" href="https://github.com/BrahmjotSingh0/rumo/blob/main/docs/API.md">API reference</a>
+      <a class="btn btn-primary" href="quickstart.html">Get started</a>
+      <a class="btn btn-secondary" href="api.html">API reference</a>
+      <a class="btn btn-secondary" href="https://github.com/BrahmjotSingh0/rumo">View on GitHub</a>
     </div>
   </div>
 </header>
 
+<main>
 <section>
   <div class="wrap">
     <h2>What it does</h2>
@@ -123,33 +80,54 @@
     <div class="grid">
       <div class="card">
         <h3>Video and audio calls</h3>
-        <p>Adaptive quality, screen sharing, and background blur.</p>
+        <p>Adaptive quality, screen sharing, and background blur, all peer-to-peer over WebRTC.</p>
       </div>
       <div class="card">
         <h3>Guest access</h3>
-        <p>Enter a name and join. No account required. Whoever creates a room is its host.</p>
+        <p>Enter a name and join. No account required. Whoever creates a room, or is first to join it, becomes its host.</p>
       </div>
       <div class="card">
         <h3>Host controls</h3>
-        <p>Mute or remove participants, promote co-hosts, lock private rooms with a waiting room, transfer host.</p>
+        <p>Mute or remove participants, promote co-hosts, lock private rooms behind a waiting room, transfer host mid-call.</p>
       </div>
       <div class="card">
         <h3>Real-time chat</h3>
-        <p>Rate-limited chat alongside the call.</p>
+        <p>Rate-limited chat alongside the call, delivered over the same Socket.IO connection.</p>
       </div>
       <div class="card">
         <h3>Configurable branding</h3>
-        <p>Change the name, logo, tagline, and accent color from one JSON file. No rebuild required.</p>
+        <p>Change the name, logo, tagline, and accent color from one JSON file. No rebuild required, edit and reload.</p>
       </div>
       <div class="card">
         <h3>Built-in i18n</h3>
-        <p>Every UI string lives in one <code>lang.json</code>. Add a language by adding a column.</p>
+        <p>Every UI string lives in one <code>lang.json</code>. Add a language by adding a column, not a new system.</p>
       </div>
     </div>
   </div>
 </section>
 
-<section class="alt" id="quick-start">
+<section class="alt">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="section-sub">No accounts, no external identity provider, and nothing to configure just to let people talk.</p>
+    <div class="grid">
+      <div class="card">
+        <h3>1. Create a room</h3>
+        <p>A guest hits "Start meeting." The backend generates a room and a shareable link. Nothing is stored about who created it beyond a display name.</p>
+      </div>
+      <div class="card">
+        <h3>2. Share the link</h3>
+        <p>Anyone with the link enters a name and joins. The first person into an empty room becomes its host.</p>
+      </div>
+      <div class="card">
+        <h3>3. Talk directly</h3>
+        <p>Audio/video flows peer-to-peer over WebRTC. The server only relays signaling (offers, answers, ICE candidates), chat, and host-control events over Socket.IO, it never sees your media.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="quick-start">
   <div class="wrap">
     <h2>Quick start</h2>
     <p class="section-sub">Requires Docker and Docker Compose.</p>
@@ -157,16 +135,20 @@
 cd rumo
 ./install.sh      # Windows: .\install.ps1</code></pre>
     <p class="section-sub">That generates <code>.env</code> with a random database password and starts everything with <code>docker compose up -d --build</code>. Frontend on port 5173, backend on port 5000.</p>
+    <div class="cta-row" style="justify-content:flex-start">
+      <a class="btn btn-secondary" href="quickstart.html">Full setup guide, including manual (non-Docker) install</a>
+    </div>
   </div>
 </section>
 
-<section>
+<section class="alt">
   <div class="wrap">
     <h2>Documentation</h2>
-    <p class="section-sub">Everything lives in the repository, rendered by GitHub.</p>
+    <p class="section-sub">Everything also lives in the repository itself.</p>
     <div class="links">
+      <a href="quickstart.html">Quick start guide</a>
+      <a href="api.html">API reference</a>
       <a href="https://github.com/BrahmjotSingh0/rumo#readme">Main README</a>
-      <a href="https://github.com/BrahmjotSingh0/rumo/blob/main/docs/API.md">API reference</a>
       <a href="https://github.com/BrahmjotSingh0/rumo/blob/main/backend/README.md">Backend guide</a>
       <a href="https://github.com/BrahmjotSingh0/rumo/blob/main/frontend/README.md">Frontend guide</a>
       <a href="https://github.com/BrahmjotSingh0/rumo/blob/main/CONTRIBUTING.md">Contributing</a>
@@ -174,8 +156,9 @@ cd rumo
     </div>
   </div>
 </section>
+</main>
 
-<footer>
+<footer class="site-footer">
   <div class="wrap">
     Rumo is open source under the MIT license. <a href="https://github.com/BrahmjotSingh0/rumo">github.com/BrahmjotSingh0/rumo</a>
   </div>

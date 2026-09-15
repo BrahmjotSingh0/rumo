@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://brahmjotsingh0.github.io/rumo/sitemap.xml
