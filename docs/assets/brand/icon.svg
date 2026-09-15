@@ -1,0 +1,12 @@
+<svg viewBox="0 0 100 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Rumo">
+  <defs>
+    <clipPath id="rumo-mark-clip">
+      <rect x="4" y="4" width="72" height="92" rx="26" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#rumo-mark-clip)">
+    <rect x="4" y="4" width="72" height="92" fill="#2E5BFF" />
+    <path d="M4 62 L48 96 L4 96 Z" fill="#1B3FBF" />
+  </g>
+  <path d="M90 40 L38 66 L90 102 Z" fill="#B7C4FA" />
+</svg>
