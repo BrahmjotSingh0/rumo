@@ -44,7 +44,6 @@ Don't add a new i18n system, provider, or file format. Currently only the landin
 
 ## Documentation style
 
-- No em dashes ("—") anywhere in this project (docs, code comments, commit messages, UI copy). Use a period, comma, colon, or semicolon instead. This is a hard rule, not a preference; PRs that introduce em dashes will be asked to fix them.
 - Prefer short, direct sentences over marketing language.
 - Code comments explain *why*, not *what* (the code already says what it does). Don't add a comment restating the line above it.
 
