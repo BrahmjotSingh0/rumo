@@ -1,8 +1,10 @@
-// Default branding. Overridden at runtime by public/branding.json (loaded
-// once via loadBranding() before the app renders - see main.jsx), so
-// self-hosters can re-brand a deployment by editing/replacing that one JSON
-// file - no rebuild, no touching source. Editing the defaults below only
-// matters if you're building the frontend from source yourself.
+import { API_BASE_URL } from '../utils/constants';
+
+// Default branding, overridden at runtime - in order - by public/branding.json
+// (edit that file directly, or bind-mount your own version over it: no
+// rebuild needed) and then by whatever's saved through the admin panel at
+// /admin (backed by the database, so it wins since it's the most recent
+// change made by whoever runs this instance). See main.jsx for when this runs.
 const branding = {
   appName: 'Rumo',
   tagline: 'Connect, collaborate, create.',
@@ -17,9 +19,15 @@ const branding = {
   primaryColor: '#2E5BFF',
 };
 
-// Fetches public/branding.json (same origin, so this works with a bind-mount
-// or a file replaced post-build) and merges any fields it defines over the
-// defaults above. Safe to call even if the file is missing or invalid.
+// Logos uploaded through the admin panel are served by the backend, so they
+// need an absolute URL rather than one relative to the frontend's own origin.
+function resolveAssetUrl(value) {
+  if (typeof value === 'string' && value.startsWith('/uploads/')) {
+    return `${API_BASE_URL}${value}`;
+  }
+  return value;
+}
+
 export async function loadBranding() {
   try {
     const res = await fetch('/branding.json', { cache: 'no-store' });
@@ -29,6 +37,24 @@ export async function loadBranding() {
   } catch {
     // No branding.json, or it's unreachable/invalid - keep the defaults.
   }
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/settings/branding`, { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.configured) {
+        if (data.appName) branding.appName = data.appName;
+        if (data.tagline) branding.tagline = data.tagline;
+        if (data.description) branding.description = data.description;
+        if (data.logoIcon) branding.logoIcon = resolveAssetUrl(data.logoIcon);
+        if (data.logoFull) branding.logoFull = resolveAssetUrl(data.logoFull);
+        if (data.primaryColor) branding.primaryColor = data.primaryColor;
+      }
+    }
+  } catch {
+    // Backend unreachable - keep whatever branding.json/defaults gave us.
+  }
+
   return branding;
 }
 

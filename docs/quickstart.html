@@ -61,12 +61,18 @@
     </nav>
 
     <h2 id="docker">Docker (recommended)</h2>
-    <p class="section-sub">Requires <a href="https://docs.docker.com/get-docker/">Docker</a> and Docker Compose.</p>
+    <p class="section-sub">On Ubuntu or Debian without Docker installed, the script offers to install it for you. Elsewhere, install <a href="https://docs.docker.com/get-docker/">Docker</a> first.</p>
     <pre><code>git clone https://github.com/BrahmjotSingh0/rumo.git
 cd rumo
 ./install.sh      # Windows: .\install.ps1</code></pre>
-    <p>That script generates <code>.env</code> with a randomly generated database password (if one doesn't already exist), then runs <code>docker compose up -d --build</code>. To configure things yourself instead, run <code>cp .env.example .env</code>, edit it, then <code>docker compose up -d --build</code>.</p>
-    <p>Frontend on <code>http://localhost:5173</code>, backend on <code>http://localhost:5000</code>. The Postgres schema is applied automatically on first run.</p>
+    <p>The script generates <code>.env</code> with randomly generated secrets for whatever isn't already set, asks for an optional domain name, then runs <code>docker compose up -d --build</code>. Running it again later is safe: it reuses whatever secrets and settings you already have instead of overwriting them.</p>
+    <p>Frontend on <code>http://localhost:5173</code>, backend on <code>http://localhost:5000</code>. The Postgres schema is applied automatically on first run. Open <code>/admin</code> and enter the admin token the script printed (also saved in <code>.env</code> as <code>ADMIN_SETUP_TOKEN</code>) to set your logo, name, tagline, and accent color.</p>
+
+    <div class="note" id="domain">
+      <strong>Custom domain and HTTPS:</strong> give the installer a domain (with its DNS A record already pointing at this server) and it starts a <a href="https://caddyserver.com/">Caddy</a> reverse proxy that gets you a free, auto-renewing certificate. No manual certbot or nginx config.
+      <pre><code>./install.sh --domain meet.example.com --yes</code></pre>
+      This also switches the frontend and backend to be reachable only through Caddy rather than directly over plain HTTP. Re-running the installer later without <code>--domain</code> keeps whatever domain you already configured.
+    </div>
 
     <h2 id="manual">Manual setup (without Docker)</h2>
     <p class="section-sub">Requires Node.js 22+ and PostgreSQL.</p>
@@ -92,7 +98,8 @@ npm run dev             # http://localhost:5173</code></pre>
     </div>
 
     <h2 id="branding">Branding</h2>
-    <p>Edit <code>frontend/public/branding.json</code> to change the app name, tagline, description, logo paths, and accent color:</p>
+    <p>Open <code>/admin</code>, enter your <code>ADMIN_SETUP_TOKEN</code>, and set the app name, tagline, description, logo, and accent color from a form. It saves to the database and applies immediately, no rebuild or restart.</p>
+    <p>Prefer a file instead (or never set an admin token)? Edit <code>frontend/public/branding.json</code>:</p>
     <pre><code>{
   "appName": "Rumo",
   "tagline": "Connect, collaborate, create.",
@@ -101,7 +108,7 @@ npm run dev             # http://localhost:5173</code></pre>
   "logoFull": "/brand/logo.svg",
   "primaryColor": "#2E5BFF"
 }</code></pre>
-    <p>This file is fetched at runtime, so re-branding an already-built/deployed instance is just editing it (or bind-mounting your own version over it in Docker); no rebuild needed. <code>primaryColor</code> drives a full 50-900 Tailwind shade scale computed on load, so buttons, badges, and focus rings across the landing and pre-join screens follow it automatically. Logo files live in <code>frontend/public/brand/</code>; replace them with your own SVG/PNG and update the paths above.</p>
+    <p>This file is fetched at runtime too (edit it, or bind-mount your own version over it in Docker), and acts as the fallback for anything not set through the admin panel. <code>primaryColor</code> drives a full 50-900 Tailwind shade scale computed on load, so buttons, badges, and focus rings across the landing and pre-join screens follow it automatically. Logo files live in <code>frontend/public/brand/</code> by default; replace them, update the paths above, or just upload one from <code>/admin</code>.</p>
     <div class="note">Scope note: the accent-color retheming covers the landing and pre-join screens. The in-call meeting UI is a large, separate surface that still uses fixed colors, aside from its own existing light/dark toggle in the in-call settings panel.</div>
 
     <h2 id="languages">Languages</h2>
@@ -119,7 +126,8 @@ npm run dev             # http://localhost:5173</code></pre>
         <tr><td>Rate limiting</td><td>On by default for the REST API (<code>RATE_LIMIT_*</code> env vars).</td></tr>
         <tr><td>Headers</td><td><code>helmet</code> sets standard security headers. Content-Security-Policy is off by default since a strict one is easy to break with WebRTC/media/websocket connections.</td></tr>
         <tr><td>Sessions</td><td>None. No cookies, no accounts, so <code>CORS_CREDENTIALS</code> defaults to <code>false</code>.</td></tr>
-        <tr><td>TLS</td><td>Not handled here; put a reverse proxy in front for real deployments.</td></tr>
+        <tr><td>Admin panel</td><td><code>/admin</code> and <code>/api/settings/*</code> writes require <code>ADMIN_SETUP_TOKEN</code>, checked with a timing-safe comparison. Unset it to disable branding changes entirely.</td></tr>
+        <tr><td>TLS</td><td>Handled by the optional Caddy reverse proxy (<code>./install.sh --domain ...</code>), or your own proxy in front for other setups.</td></tr>
         <tr><td>Secrets</td><td><code>.env</code>/<code>.env.production</code> are gitignored everywhere in the repo. Never commit real credentials.</td></tr>
       </table>
     </div>

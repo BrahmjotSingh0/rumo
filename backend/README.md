@@ -41,6 +41,8 @@ See [`.env.example`](.env.example) for the full list with defaults. The importan
 | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_REQUESTS` | REST API rate limiting |
 | `STUN_SERVERS` | Comma-separated STUN URLs, defaults to Google's public servers |
 | `TURN_SERVERS` | Optional, format `url\|username\|credential`, comma-separated for multiple |
+| `UPLOAD_PATH` | Where uploaded logos are stored (default `./uploads`) |
+| `ADMIN_SETUP_TOKEN` | Required to use the `/admin` panel or write to `/api/settings/*`. Leave unset to disable branding changes entirely |
 
 ## Project layout
 
@@ -50,9 +52,11 @@ src/
 │   ├── database.js       Postgres pool + query/transaction helpers
 │   └── environment.js    env var loading + defaults
 ├── models/
-│   └── Room.js            all room/participant SQL
+│   ├── Room.js               all room/participant SQL
+│   └── BrandingSettings.js   admin-panel branding overrides (single row)
 ├── routes/
 │   ├── rooms.js           POST/GET/PATCH/DELETE /api/rooms
+│   ├── settings.js        GET/PUT /api/settings/branding, logo upload
 │   └── health.js          GET /health
 ├── services/
 │   └── socketService.js  all Socket.IO event handling (~30 events)
@@ -64,7 +68,7 @@ src/
 
 ## Database
 
-`database/schema.sql` is the single source of truth for the schema; there's no migration framework yet. Tables: `rooms`, `room_participants` (guests, identified by name, no `users` table since there are no accounts), `chat_messages`, `meeting_sessions`, `connection_logs`, `webrtc_stats`, plus two views (`active_rooms`, `room_analytics`).
+`database/schema.sql` is the single source of truth for the schema; there's no migration framework yet. Tables: `rooms`, `room_participants` (guests, identified by name, no `users` table since there are no accounts), `chat_messages`, `meeting_sessions`, `connection_logs`, `webrtc_stats`, `branding_settings` (single row, written by the admin panel), plus two views (`active_rooms`, `room_analytics`).
 
 ## Process management (non-Docker deployments)
 

@@ -123,6 +123,25 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_rooms_updated_at BEFORE UPDATE ON "rooms"
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- Branding settings (single row). Lets the admin panel at /admin override
+-- app name, tagline, description, logo, and accent color without editing
+-- frontend/public/branding.json. No row means "not configured through the
+-- admin panel yet" - the frontend falls back to branding.json / its defaults.
+CREATE TABLE "branding_settings" (
+    "id" SMALLINT PRIMARY KEY DEFAULT 1,
+    "app_name" VARCHAR(100),
+    "tagline" VARCHAR(200),
+    "description" VARCHAR(300),
+    "logo_icon" VARCHAR(500),
+    "logo_full" VARCHAR(500),
+    "primary_color" VARCHAR(7),
+    "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "branding_settings_single_row" CHECK ("id" = 1)
+);
+
+CREATE TRIGGER update_branding_settings_updated_at BEFORE UPDATE ON "branding_settings"
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- Views for common queries
 CREATE VIEW "active_rooms" AS
 SELECT

@@ -85,6 +85,55 @@ Aggregate stats for a room (participant/message counts, duration) from the `room
 
 Health check: DB connectivity, memory/CPU, uptime. Used by Docker's healthcheck and load balancers.
 
+### `GET /api/settings/branding`
+
+Public. Current branding settings saved through the admin panel, if any.
+
+**Response** `200`
+```json
+{ "configured": false }
+```
+or, once something has been saved:
+```json
+{
+  "configured": true,
+  "appName": "Rumo",
+  "tagline": "Connect, collaborate, create.",
+  "description": "Free, self-hosted video meetings.",
+  "logoIcon": "/uploads/branding/....svg",
+  "logoFull": "/uploads/branding/....svg",
+  "primaryColor": "#2E5BFF",
+  "updatedAt": "2026-01-01T00:00:00.000Z"
+}
+```
+Fields are only present once set; the frontend falls back to `branding.json` / built-in defaults for anything missing.
+
+### `PUT /api/settings/branding`
+
+Requires header `x-admin-token: <ADMIN_SETUP_TOKEN>`. Returns `403` if `ADMIN_SETUP_TOKEN` isn't set on the backend, `401` if the token doesn't match.
+
+**Body** (all fields optional, only the ones you send are changed)
+| Field | Type | Notes |
+|---|---|---|
+| `appName` | string | 1-100 chars |
+| `tagline` | string | up to 200 chars |
+| `description` | string | up to 300 chars |
+| `logoIcon` | string | path, typically from the logo upload endpoint below |
+| `logoFull` | string | path, same as above |
+| `primaryColor` | string | hex color, e.g. `#2E5BFF` |
+
+**Response** `200`: same shape as the `GET` above.
+
+### `POST /api/settings/branding/logo`
+
+Requires header `x-admin-token: <ADMIN_SETUP_TOKEN>`. Multipart form upload, field name `logo`. Accepts SVG, PNG, JPEG, or WebP, up to 2MB.
+
+**Response** `200`
+```json
+{ "url": "/uploads/branding/3f1c....svg" }
+```
+Pass that `url` as `logoIcon` or `logoFull` in the `PUT` above to use it.
+
 ---
 
 ## Socket.IO

@@ -1,0 +1,23 @@
+{$DOMAIN} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy backend:5000
+	}
+
+	handle /socket.io/* {
+		reverse_proxy backend:5000
+	}
+
+	handle /uploads/* {
+		reverse_proxy backend:5000
+	}
+
+	handle /health {
+		reverse_proxy backend:5000
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+}

@@ -96,11 +96,15 @@
       </div>
       <div class="card">
         <h3>Configurable branding</h3>
-        <p>Change the name, logo, tagline, and accent color from one JSON file. No rebuild required, edit and reload.</p>
+        <p>Change the name, logo, tagline, and accent color from an admin panel in the browser, or a JSON file. No rebuild required.</p>
       </div>
       <div class="card">
         <h3>Built-in i18n</h3>
         <p>Every UI string lives in one <code>lang.json</code>. Add a language by adding a column, not a new system.</p>
+      </div>
+      <div class="card">
+        <h3>One-command HTTPS</h3>
+        <p>Point a domain at your server and the installer sets up a reverse proxy with a free, auto-renewing certificate.</p>
       </div>
     </div>
   </div>
@@ -134,7 +138,7 @@
     <pre><code>git clone https://github.com/BrahmjotSingh0/rumo.git
 cd rumo
 ./install.sh      # Windows: .\install.ps1</code></pre>
-    <p class="section-sub">That generates <code>.env</code> with a random database password and starts everything with <code>docker compose up -d --build</code>. Frontend on port 5173, backend on port 5000.</p>
+    <p class="section-sub">That checks for Docker, generates <code>.env</code> with random secrets, and starts everything. It also asks for an optional domain name to set up free HTTPS automatically. Once it's running, open <code>/admin</code> to set your logo, name, and colors.</p>
     <div class="cta-row" style="justify-content:flex-start">
       <a class="btn btn-secondary" href="quickstart.html">Full setup guide, including manual (non-Docker) install</a>
     </div>

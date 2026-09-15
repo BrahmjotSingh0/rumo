@@ -50,6 +50,10 @@ const config = {
     allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'application/pdf']
   },
 
+  // Shared secret required to change branding settings via /api/settings and
+  // the /admin panel. Leave unset to disable those write endpoints entirely.
+  adminSetupToken: process.env.ADMIN_SETUP_TOKEN || '',
+
   // Logging Configuration
   logging: {
     level: process.env.LOG_LEVEL || 'info',

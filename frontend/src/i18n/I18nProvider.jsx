@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useMemo, useCallback, useEffect } from 'react';
 import langData from './lang.json';
 
-const { languages, strings, defaultLanguage } = langData;
+const { languages, strings, defaultLanguage, rtlLanguages = [] } = langData;
 const STORAGE_KEY = 'rumo_language';
 
 function getInitialLanguage() {
@@ -22,6 +22,7 @@ export const I18nProvider = ({ children }) => {
 
   useEffect(() => {
     document.documentElement.lang = language;
+    document.documentElement.dir = rtlLanguages.includes(language) ? 'rtl' : 'ltr';
   }, [language]);
 
   const setLanguage = useCallback((code) => {

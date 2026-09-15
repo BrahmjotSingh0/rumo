@@ -34,7 +34,7 @@ Don't add a new i18n system, provider, or file format. Currently only the landin
 
 ## Changing branding/theming
 
-`frontend/src/config/branding.js` holds the fallback defaults; `frontend/public/branding.json` is what actually ships and gets fetched at runtime. If you're changing what fields branding supports, update both, plus the docs in the README's [Configuration](README.md#configuration) section and `frontend/README.md`.
+`frontend/src/config/branding.js` holds the fallback defaults and merges two runtime sources over them, in order: `frontend/public/branding.json`, then `backend/src/routes/settings.js` (what the `/admin` panel writes to, stored via `backend/src/models/BrandingSettings.js`). If you're adding a new branding field, update all three, plus the docs in the README's [Configuration](README.md#configuration) section, `frontend/README.md`, and `docs/API.md`.
 
 ## Backend changes
 

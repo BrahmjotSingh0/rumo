@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
@@ -14,6 +15,7 @@ const socketService = require('./src/services/socketService');
 // Routes
 const roomRoutes = require('./src/routes/rooms');
 const healthRoutes = require('./src/routes/health');
+const settingsRoutes = require('./src/routes/settings');
 
 const app = express();
 const server = http.createServer(app);
@@ -63,8 +65,12 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Request logging
 app.use(logger.requestLogger);
 
+// Uploaded logos, served at the same relative path the settings API returns
+app.use('/uploads', express.static(path.resolve(config.upload.uploadPath)));
+
 // Routes
 app.use('/api/rooms', roomRoutes);
+app.use('/api/settings', settingsRoutes);
 app.use('/health', healthRoutes);
 
 // Initialize Socket.IO service

@@ -6,6 +6,7 @@ import branding from './config/branding';
 import Home from './components/Home';
 import PreJoin from './components/PreJoin';
 import MeetingPro from './components/MeetingPro';
+import Admin from './components/Admin';
 import './index.css';
 
 function App() {
@@ -25,6 +26,7 @@ function App() {
             <Route path="/meeting/:roomId" element={<PreJoin />} />
             {/* Internal meeting room - only accessible from PreJoin navigation */}
             <Route path="/m/:roomId" element={<MeetingPro />} />
+            <Route path="/admin" element={<Admin />} />
           </Routes>
 
           <Toaster

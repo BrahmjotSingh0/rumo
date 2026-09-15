@@ -51,6 +51,7 @@
       <h2>On this page</h2>
       <ul>
         <li><a href="#rest">REST endpoints</a></li>
+        <li><a href="#settings">Branding settings</a></li>
         <li><a href="#joining">Socket.IO: joining</a></li>
         <li><a href="#waiting-room">Waiting room</a></li>
         <li><a href="#signaling">WebRTC signaling</a></li>
@@ -120,6 +121,18 @@
         <tr><td><code>GET /health</code></td><td>Health check: DB connectivity, memory/CPU, uptime. Used by Docker's healthcheck and load balancers.</td></tr>
       </table>
     </div>
+
+    <h2 id="settings">Branding settings</h2>
+    <p class="section-sub">What the <code>/admin</code> panel reads and writes. Base URL is the same as above.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Endpoint</th><th>Auth</th><th>Purpose</th></tr>
+        <tr><td><code>GET /api/settings/branding</code></td><td>None (public)</td><td>Current saved branding, or <code>{ "configured": false }</code> if nothing's been saved yet.</td></tr>
+        <tr><td><code>PUT /api/settings/branding</code></td><td><code>x-admin-token</code> header</td><td>Body: any of <code>appName</code>, <code>tagline</code>, <code>description</code>, <code>logoIcon</code>, <code>logoFull</code>, <code>primaryColor</code> (hex). Only the fields you send are changed.</td></tr>
+        <tr><td><code>POST /api/settings/branding/logo</code></td><td><code>x-admin-token</code> header</td><td>Multipart upload, field name <code>logo</code>. SVG, PNG, JPEG, or WebP, up to 2MB. Returns <code>{ "url": "/uploads/branding/..." }</code> to use as <code>logoIcon</code>/<code>logoFull</code> above.</td></tr>
+      </table>
+    </div>
+    <p><code>x-admin-token</code> must match <code>ADMIN_SETUP_TOKEN</code> from the backend's environment: <code>401</code> if it doesn't, <code>403</code> if that variable isn't set at all.</p>
   </div>
 </section>
 

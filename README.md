@@ -37,8 +37,9 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 - **Host controls**: mute/remove participants, co-hosts, waiting room for private rooms, host transfer
 - **Real-time chat** with rate limiting
 - **Connection quality monitoring** and automatic reconnection
-- **Configurable branding**: swap the name, logo, tagline, and accent color from one JSON file, no rebuild required
+- **Configurable branding**: change the name, logo, tagline, and accent color from an admin panel in the browser, or a JSON file - no rebuild required
 - **Built-in i18n**: every UI string lives in one `lang.json`, add a language by adding a column
+- **One-command HTTPS**: point a domain at your server and the installer sets up a reverse proxy with automatic, auto-renewing certificates
 
 ## Quick start (Docker)
 
@@ -50,13 +51,23 @@ cd rumo
 ./install.sh      # Windows: .\install.ps1
 ```
 
-That generates `.env` with a random database password (if one doesn't already exist) and runs `docker compose up -d --build`. To configure things yourself instead, run `cp .env.example .env`, edit it, then `docker compose up -d --build`.
+The script checks for Docker (and offers to install it on Ubuntu/Debian), generates `.env` with random secrets for anything you haven't already set, and runs `docker compose up -d --build`. Running it again later is safe: it won't overwrite secrets or settings you already have.
 
-Frontend: http://localhost:5173 · Backend: http://localhost:5000
+It asks for a domain name. Leave it blank to run on plain `http://localhost`, or give it one (with its DNS already pointing at this server) to have it start [Caddy](https://caddyserver.com/) as a reverse proxy and get you a free, auto-renewing HTTPS certificate:
+
+```bash
+./install.sh --domain meet.example.com --yes
+```
+
+Either way, once it's up:
+
+- App: `http://localhost:5173` (or `https://your-domain`)
+- Admin panel: `.../admin`, unlocked with the `ADMIN_SETUP_TOKEN` the script prints (also saved in `.env`) - use it to set the name, logo, tagline, and accent color without touching a file
+- Backend health check: `http://localhost:5000/health`
 
 The Postgres schema is applied automatically on first run.
 
-> Camera/microphone access requires HTTPS in the browser (Chrome and Firefox both block `getUserMedia` on plain HTTP), except on `localhost`. For a real deployment, put a reverse proxy (Caddy, nginx, Cloudflare Tunnel, etc.) with a TLS certificate in front of `frontend`/`backend`, and point `CORS_ORIGIN`, `VITE_API_URL`, and `VITE_SOCKET_URL` at the public HTTPS URLs.
+> Camera/microphone access requires HTTPS in the browser (Chrome and Firefox both block `getUserMedia` on plain HTTP), except on `localhost`. The `--domain` flag above handles this for you; without it, you'll need your own reverse proxy with a TLS certificate in front of `frontend`/`backend`, with `CORS_ORIGIN`, `VITE_API_URL`, and `VITE_SOCKET_URL` pointed at the public HTTPS URLs.
 
 ## Manual setup (without Docker)
 
@@ -84,7 +95,9 @@ npm run dev             # http://localhost:5173
 
 ### Branding
 
-Edit [`frontend/public/branding.json`](frontend/public/branding.json) to change the app name, tagline, description, logo paths, and accent color:
+The easiest way: open `/admin` in your browser, enter the `ADMIN_SETUP_TOKEN` from your `.env`, and set the app name, tagline, description, logo, and accent color from a form. Changes apply immediately, no rebuild or restart.
+
+Those settings live in Postgres. If you'd rather manage branding as a file (for scripted deployments, or if you never set `ADMIN_SETUP_TOKEN`), edit [`frontend/public/branding.json`](frontend/public/branding.json) instead:
 
 ```json
 {
@@ -97,7 +110,7 @@ Edit [`frontend/public/branding.json`](frontend/public/branding.json) to change 
 }
 ```
 
-This file is fetched at runtime, so re-branding an already-built/deployed instance is just editing it (or bind-mounting your own version over it); no rebuild needed. `primaryColor` drives a full 50-900 Tailwind shade scale computed on load (see `frontend/src/utils/theme.js`), so buttons, badges, and focus rings across the landing and pre-join screens follow it automatically. Logo files live in `frontend/public/brand/`; replace them with your own SVG/PNG and update the paths above. `frontend/src/config/branding.js` holds the fallback defaults used if `branding.json` is missing or invalid, for anyone building from source.
+This file is fetched at runtime too (edit it or bind-mount your own version over it; no rebuild needed), and acts as the fallback whenever nothing has been saved through the admin panel yet. `primaryColor` drives a full 50-900 Tailwind shade scale computed on load (see `frontend/src/utils/theme.js`), so buttons, badges, and focus rings across the landing and pre-join screens follow it automatically. Logo files live in `frontend/public/brand/`; replace them with your own SVG/PNG and update the paths above, or just upload one from `/admin`. `frontend/src/config/branding.js` holds the built-in defaults used if neither the admin panel nor `branding.json` set something.
 
 > Scope note: the accent-color retheming above covers the landing and pre-join screens. The in-call UI (`MeetingPro.jsx`) is a large, separate surface that still uses fixed colors, aside from its own existing light/dark toggle in the in-call settings panel. Full accent-color coverage there is a good follow-up contribution.
 
@@ -127,20 +140,21 @@ rumo/
 │   ├── database/schema.sql
 │   ├── src/
 │   │   ├── config/       env + db connection
-│   │   ├── models/       Room.js
-│   │   ├── routes/       REST endpoints (/api/rooms, /health)
+│   │   ├── models/       Room.js, BrandingSettings.js
+│   │   ├── routes/       REST endpoints (/api/rooms, /api/settings, /health)
 │   │   ├── services/     socketService.js: WebRTC signaling & room state
 │   │   └── utils/
+│   ├── uploads/          logos uploaded through /admin (gitignored)
 │   ├── server.js
 │   ├── Dockerfile
 │   └── README.md
 ├── frontend/             React + Vite
 │   ├── public/
 │   │   ├── brand/        icon.svg, logo.svg
-│   │   └── branding.json  runtime-editable name/logo/tagline/color
+│   │   └── branding.json  fallback name/logo/tagline/color (see /admin)
 │   ├── src/
-│   │   ├── components/   Home, PreJoin, MeetingPro, meeting/*
-│   │   ├── config/        branding.js (fallback defaults)
+│   │   ├── components/   Home, PreJoin, MeetingPro, Admin, meeting/*
+│   │   ├── config/        branding.js (defaults + runtime loader)
 │   │   ├── i18n/           lang.json + provider
 │   │   ├── utils/theme.js  color-scale generator for primaryColor
 │   │   └── hooks/, stores/, utils/
@@ -148,6 +162,7 @@ rumo/
 │   └── README.md
 ├── docs/                 API reference + GitHub Pages site
 ├── docker-compose.yml
+├── Caddyfile             reverse proxy config used by the "proxy" profile
 ├── install.sh / install.ps1   one-command setup
 ├── CONTRIBUTING.md
 └── .env.example
@@ -167,7 +182,8 @@ rumo/
 - API rate limiting is on by default (`RATE_LIMIT_*` in `backend/.env.example`).
 - `helmet` sets standard security headers. Content-Security-Policy is left off by default because it's easy to break WebRTC/media/websocket connections with an overly strict one; if you enable it, test screen share, camera, and chat afterward.
 - No cookies or sessions are used (guest model, see [How hosting works](#how-hosting-works)), so `CORS_CREDENTIALS` defaults to `false`.
-- Nothing here handles TLS; put a reverse proxy in front for real deployments (see the HTTPS note in Quick Start).
+- TLS is handled by the optional Caddy reverse proxy (`./install.sh --domain ...`) or your own proxy in front; the app itself doesn't terminate HTTPS.
+- The admin panel (`/admin`, `/api/settings/*`) is gated by `ADMIN_SETUP_TOKEN`, compared with a timing-safe check. Leave it unset to disable branding changes entirely.
 - `.env`/`.env.production` are gitignored everywhere in this repo. Never commit real credentials, and run `npm audit` in both `backend/` and `frontend/` before bumping dependencies.
 
 ## Contributing
