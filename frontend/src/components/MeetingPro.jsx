@@ -2902,19 +2902,24 @@ const MeetingPro = () => {
               )
             })()}
 
-            {/* Sidebar toggle - collapses the panel on any screen size */}
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className={`${isMobile ? 'p-2' : 'p-3'} ${buttonClasses} rounded-xl transition-all duration-200 hover:scale-105 shadow-lg relative`}
-              title={sidebarOpen ? 'Hide panel' : 'Show panel'}
-            >
-              {sidebarOpen ? <X size={isMobile ? 16 : 18} /> : <Users size={isMobile ? 16 : 18} />}
-              {messages.length > 0 && activeTab !== 'chat' && !sidebarOpen && (
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
-                  <span className="text-white text-[8px] font-bold">{messages.length > 9 ? '9+' : messages.length}</span>
-                </div>
-              )}
-            </button>
+            {/* Sidebar toggle - only needed to *open* the panel. Once it's
+                open, the panel has its own collapse button in its header
+                (see MeetingSidebar), so showing this one too would just be
+                two different buttons doing the same close action. */}
+            {!sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className={`${isMobile ? 'p-2' : 'p-3'} ${buttonClasses} rounded-xl transition-all duration-200 hover:scale-105 shadow-lg relative`}
+                title="Show panel"
+              >
+                <Users size={isMobile ? 16 : 18} />
+                {messages.length > 0 && activeTab !== 'chat' && (
+                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-[8px] font-bold">{messages.length > 9 ? '9+' : messages.length}</span>
+                  </div>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>
