@@ -218,6 +218,7 @@ rumo/
 - [`backend/README.md`](backend/README.md): backend setup, env vars, scripts
 - [`frontend/README.md`](frontend/README.md): frontend setup, branding, i18n, scripts
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): how to contribute, coding/docs style
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md): expected behavior in issues, PRs, and discussions
 - [`SECURITY.md`](SECURITY.md): supported versions, how to report a vulnerability, trust model
 - [Live docs site](https://brahmjotsingh0.github.io/rumo/): a browsable landing page for the project
 
