@@ -25,7 +25,8 @@ const FEATURE_DEFAULTS = {
   fileSharing: true,
   whiteboard: true,
   breakoutRooms: true,
-  hostControls: true
+  hostControls: true,
+  embedding: true
 };
 
 function withFeatureDefaults(features) {

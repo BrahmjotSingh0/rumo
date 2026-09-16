@@ -225,7 +225,16 @@ router.post('/:roomId/files', [
     try {
       const room = await Room.findById(req.params.roomId);
       if (!room) {
-        fs.unlink(req.file.path, () => {});
+        // req.file.path is always destination + our own crypto.randomUUID()
+        // filename (see uploadChatFile above) - the caller's original
+        // filename never reaches it. This check is defense in depth rather
+        // than trusting that invariant forever: refuse to unlink anything
+        // outside the chat upload directory instead of passing the path
+        // straight through.
+        const resolved = path.resolve(req.file.path);
+        if (resolved.startsWith(path.resolve(chatUploadDir) + path.sep)) {
+          fs.unlink(resolved, () => {});
+        }
         return res.status(404).json({ error: 'Room not found' });
       }
 

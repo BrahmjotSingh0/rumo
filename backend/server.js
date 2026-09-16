@@ -32,9 +32,26 @@ const io = socketIo(server, {
   transports: config.socket.transports
 });
 
-// Security middleware
+// Security middleware. This server only ever responds with JSON (the API),
+// static files (/uploads), and the Socket.IO handshake - it never renders
+// the app's own HTML/JS (that's the separate frontend container/process,
+// see README "How hosting works"), so there's no WebRTC/media functionality
+// here for a strict CSP to break. It mainly matters for /uploads: SVG logo
+// uploads can contain a <script>, and this stops it from running if that
+// file is ever opened directly instead of embedded as an <img> (which reads
+// the embedding page's CSP, not this one, so normal branding display is
+// unaffected either way).
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable for development
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'none'"],
+      imgSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"], // inline <style> inside an uploaded SVG, no script capability
+      scriptSrc: ["'none'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"]
+    }
+  },
   crossOriginEmbedderPolicy: false,
   // Uploaded logos/backgrounds under /uploads are public brand assets meant
   // to be loaded by the frontend, which is commonly on a different origin

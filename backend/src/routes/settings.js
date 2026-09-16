@@ -196,11 +196,18 @@ router.delete('/branding/backgrounds/:id', requireAdminToken, async (req, res) =
     const remaining = presets.filter((p) => p.id !== req.params.id);
     const row = await BrandingSettings.upsert({ background_presets: remaining });
 
-    const filePath = path.join(config.upload.uploadPath, target.url.replace(/^\/uploads\//, ''));
-    fs.unlink(filePath, () => {
-      // Best-effort - the DB record (the part that actually matters) is
-      // already gone even if the file happens to be missing/locked.
-    });
+    // target.url is always our own crypto.randomUUID() filename under
+    // uploads/backgrounds/ (see the upload handler above) - this resolved-
+    // path check is defense in depth in case that ever stops being true,
+    // rather than joining a DB-stored path straight into an unlink call.
+    const uploadRoot = path.resolve(config.upload.uploadPath);
+    const filePath = path.resolve(uploadRoot, target.url.replace(/^\/uploads\//, ''));
+    if (filePath.startsWith(uploadRoot + path.sep)) {
+      fs.unlink(filePath, () => {
+        // Best-effort - the DB record (the part that actually matters) is
+        // already gone even if the file happens to be missing/locked.
+      });
+    }
 
     res.json({ backgroundPresets: row.background_presets });
   } catch (error) {
