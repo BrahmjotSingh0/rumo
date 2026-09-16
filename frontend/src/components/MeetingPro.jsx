@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
-import { Grid3X3, User, X, Users, BriefcaseBusiness } from 'lucide-react'
+import { Grid3X3, User, X, Users, BriefcaseBusiness, Maximize2, PanelRight, Presentation } from 'lucide-react'
 import toast from 'react-hot-toast'
 import io from 'socket.io-client'
 import { SOCKET_URL, ICE_SERVERS } from '../utils/constants'
@@ -17,6 +17,17 @@ import MeetingSidebar from './meeting/MeetingSidebar'
 import MeetingControls from './meeting/MeetingControls'
 import JoinRequestPopup from './meeting/JoinRequestPopup'
 import { playUserJoined, playYouJoined, playUserLeft, playScreenShareStart, playScreenShareStop, playJoinRequest } from '../utils/sounds'
+
+// All layouts VideoGrid knows how to render (see its viewMode prop). Order
+// here is the order shown in the layout picker menu.
+const LAYOUT_OPTIONS = [
+  { id: 'grid', label: 'Grid', icon: Grid3X3 },
+  { id: 'speaker', label: 'Speaker', icon: User },
+  { id: 'sidebar', label: 'Sidebar', icon: PanelRight },
+  { id: 'spotlight', label: 'Spotlight', icon: Maximize2 },
+  { id: 'interview', label: 'Interview panel', icon: BriefcaseBusiness },
+  { id: 'webinar', label: 'Webinar', icon: Presentation }
+]
 
 const MeetingPro = () => {
   const { roomId } = useParams()
@@ -98,6 +109,7 @@ const MeetingPro = () => {
   const [showControls, setShowControls] = useState(true)
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
   const [showScreenShareDropdown, setShowScreenShareDropdown] = useState(false)
+  const [showLayoutMenu, setShowLayoutMenu] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [pinnedVideo, setPinnedVideo] = useState(null)
   const [debugLogs, setDebugLogs] = useState([])
@@ -2028,6 +2040,16 @@ const MeetingPro = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showScreenShareDropdown])
 
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showLayoutMenu && !event.target.closest('.layout-menu-container')) {
+        setShowLayoutMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showLayoutMenu])
+
   // Handle video quality changes
   useEffect(() => {
     const updateVideoQuality = async () => {
@@ -2678,27 +2700,47 @@ const MeetingPro = () => {
           </div>
           
           <div className="flex items-center space-x-1.5 md:space-x-2">
-            <button
-              onClick={() => {
-                // Cycle through: grid -> speaker -> interview -> grid
-                const modes = ['grid', 'speaker', 'interview']
-                const currentIndex = modes.indexOf(viewMode)
-                const nextMode = modes[(currentIndex + 1) % modes.length]
-                setViewMode(nextMode)
-                updateSetting('layout', nextMode)
-              }}
-              className={`${isMobile ? 'p-2' : 'p-3'} ${buttonClasses} rounded-xl transition-all duration-200 hover:scale-105 shadow-lg`}
-              title={viewMode === 'grid' ? 'Switch to Speaker View' : viewMode === 'speaker' ? 'Switch to Interview Mode' : 'Switch to Grid View'}
-            >
-              {viewMode === 'grid' ? (
-                <Grid3X3 size={isMobile ? 16 : 18} />
-              ) : viewMode === 'speaker' ? (
-                <User size={isMobile ? 16 : 18} />
-              ) : (
-                <BriefcaseBusiness size={isMobile ? 16 : 18} />
-              )}
-            </button>
-            
+            {branding.features.layoutSwitch !== false && (() => {
+              const currentLayout = LAYOUT_OPTIONS.find(o => o.id === viewMode) || LAYOUT_OPTIONS[0]
+              const CurrentLayoutIcon = currentLayout.icon
+              return (
+                <div className="relative layout-menu-container">
+                  <button
+                    onClick={() => setShowLayoutMenu(v => !v)}
+                    className={`${isMobile ? 'p-2' : 'p-3'} ${buttonClasses} rounded-xl transition-all duration-200 hover:scale-105 shadow-lg`}
+                    title="Change layout"
+                  >
+                    <CurrentLayoutIcon size={isMobile ? 16 : 18} />
+                  </button>
+
+                  {showLayoutMenu && (
+                    <div className={`absolute top-full mt-2 ${isMobile ? 'right-0' : 'left-0'} bg-gray-800/95 backdrop-blur-xl border border-gray-600/50 rounded-xl shadow-2xl py-2 min-w-[180px] z-50`}>
+                      {LAYOUT_OPTIONS.map((option) => {
+                        const Icon = option.icon
+                        const isActive = viewMode === option.id
+                        return (
+                          <button
+                            key={option.id}
+                            onClick={() => {
+                              setViewMode(option.id)
+                              updateSetting('layout', option.id)
+                              setShowLayoutMenu(false)
+                            }}
+                            className={`w-full px-4 py-2.5 text-left flex items-center gap-3 text-sm transition-colors ${
+                              isActive ? 'text-blue-400 font-semibold bg-blue-500/10' : 'text-gray-200 hover:bg-gray-700/50'
+                            }`}
+                          >
+                            <Icon size={16} />
+                            {option.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
             {/* Sidebar toggle - only functional on mobile/tablet */}
             <button
               onClick={() => isMobile && setSidebarOpen(!sidebarOpen)}

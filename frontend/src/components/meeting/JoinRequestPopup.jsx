@@ -32,7 +32,7 @@ const JoinRequestPopup = ({ request, onApprove, onReject, settings }) => {
   const textSecondaryClass = isLight ? 'text-gray-600' : 'text-gray-400'
 
   return (
-    <div className="fixed top-20 right-4 z-50 max-w-sm w-full animate-slide-in-right">
+    <div className="fixed top-20 left-4 right-4 sm:left-auto sm:w-full sm:max-w-sm z-50 animate-slide-in-right">
       <div className={`${bgClass} ${borderClass} border rounded-xl shadow-2xl overflow-hidden`}>
         {/* Header */}
         <div className={`px-4 py-3 ${isLight ? 'bg-blue-50' : 'bg-blue-900/30'} border-b ${borderClass}`}>

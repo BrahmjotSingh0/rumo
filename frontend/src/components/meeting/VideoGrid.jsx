@@ -42,25 +42,26 @@ const VideoGrid = ({
   )
 
   useEffect(() => {
-    
     if (localStream && localVideoRef.current) {
       localVideoRef.current.srcObject = localStream
       // Force play on mobile
       localVideoRef.current.play().catch(e => console.log('[VideoGrid] ⚠️ Video play failed:', e))
-    } else {
     }
-    
+
     if (screenStream && screenVideoRef.current) {
       screenVideoRef.current.srcObject = screenStream
       screenVideoRef.current.play().catch(e => console.log('[VideoGrid] Screen play failed:', e))
     }
   }, [localStream, screenStream, localStreamVersion, viewMode]) // Add viewMode to re-attach stream when switching modes
 
-  // Update main video ref when it changes (for speaker view, and interview
-  // mode on mobile, which falls back to this same speaker-style layout - see
-  // the `viewMode === 'interview' && !isMobile` guard below)
+  // Update main video ref when it changes. Several view modes share this one
+  // big "main video" element: speaker and sidebar always use it, spotlight
+  // always uses it, and interview/webinar fall back to it on mobile (there's
+  // no room for a panel layout on a phone screen) - see the `!isMobile`
+  // guards on those two modes below.
   useEffect(() => {
-    const usesMainVideo = viewMode === 'speaker' || (viewMode === 'interview' && isMobile)
+    const usesMainVideo = viewMode === 'speaker' || viewMode === 'sidebar' || viewMode === 'spotlight' ||
+      ((viewMode === 'interview' || viewMode === 'webinar') && isMobile)
     if (usesMainVideo && mainVideoRef.current) {
       const streamToUse = mainVideo.stream
       if (streamToUse) {
@@ -74,7 +75,6 @@ const VideoGrid = ({
             mainVideoRef.current?.play().catch(err => console.log('[VideoGrid] ❌ Main video retry failed:', err))
           }, 100)
         })
-      } else {
       }
     }
   }, [viewMode, isMobile, mainVideo.stream, mainVideo.isYou, mainVideo.socketId, localStreamVersion, videoEnabled])
@@ -122,20 +122,21 @@ const VideoGrid = ({
     
     // Initial calculation with slight delay to ensure DOM is ready
     const initialTimeout = setTimeout(calculateMaxThumbnails, 200)
-    
+
     const resizeObserver = new ResizeObserver(calculateMaxThumbnails)
-    if (thumbnailContainerRef.current) {
-      resizeObserver.observe(thumbnailContainerRef.current)
+    const containerNode = thumbnailContainerRef.current
+    if (containerNode) {
+      resizeObserver.observe(containerNode)
     }
-    
+
     // Also listen to window resize for zoom changes
     window.addEventListener('resize', calculateMaxThumbnails)
-    
+
     return () => {
       clearTimeout(timeoutId)
       clearTimeout(initialTimeout)
-      if (thumbnailContainerRef.current) {
-        resizeObserver.unobserve(thumbnailContainerRef.current)
+      if (containerNode) {
+        resizeObserver.unobserve(containerNode)
       }
       window.removeEventListener('resize', calculateMaxThumbnails)
     }
@@ -215,10 +216,7 @@ const VideoGrid = ({
     })
     
     const totalHosts = hosts.length
-    const totalCoHosts = coHosts.length
-    const totalInterviewees = interviewees.length
-    const totalInterviewPanel = totalHosts + totalCoHosts
-    
+
     // Limit co-hosts in panel to 2, move extras to participants
     const maxCoHostsInPanel = 2
     const panelCoHosts = coHosts.slice(0, maxCoHostsInPanel)
@@ -349,6 +347,85 @@ const VideoGrid = ({
     )
   }
 
+  // Webinar Mode - Desktop only (falls back to speaker view on mobile, same
+  // reasoning as interview mode above). Same host/co-host panel treatment as
+  // interview mode, but the audience below isn't capped at 4 tiles - meant
+  // for a "few presenters, many watchers" call rather than an interview.
+  if (viewMode === 'webinar' && !isMobile) {
+    const hosts = []
+    const coHosts = []
+    const audience = []
+
+    if (isHost) {
+      hosts.push({
+        type: 'local-camera', stream: localStream, name: userName, isYou: true,
+        audioEnabled, videoEnabled, profilePicture: userProfilePicture, isHost: true
+      })
+    } else if (userRole === 'co-host') {
+      coHosts.push({
+        type: 'local-camera', stream: localStream, name: userName, isYou: true,
+        audioEnabled, videoEnabled, profilePicture: userProfilePicture, role: 'co-host'
+      })
+    } else {
+      audience.push({
+        type: 'local-camera', stream: localStream, name: userName, isYou: true,
+        audioEnabled, videoEnabled, profilePicture: userProfilePicture
+      })
+    }
+
+    sortedParticipants.forEach(p => {
+      const participant = { ...p, stream: remoteStreams.get(p.socketId), streamVersion: remoteStreamVersions.get(p.socketId) || 0 }
+      if (p.isHost) hosts.push(participant)
+      else if (p.role === 'co-host') coHosts.push(participant)
+      else audience.push(participant)
+    })
+
+    const maxCoHostsInPanel = 3
+    const panelCoHosts = coHosts.slice(0, maxCoHostsInPanel)
+    const overflowCoHosts = coHosts.slice(maxCoHostsInPanel)
+    const allAudience = [...overflowCoHosts, ...audience]
+    const panelTotal = hosts.length + panelCoHosts.length
+
+    return (
+      <div className="h-full flex flex-col p-6 pt-20 pb-6 gap-4 bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950">
+        {panelTotal > 0 && (
+          <div className={`${settings.compactMode ? 'h-[30%]' : 'h-[38%]'} flex-shrink-0 bg-gradient-to-br from-blue-950/30 via-indigo-950/20 to-blue-950/30 rounded-2xl p-5 border border-blue-500/20 shadow-2xl`}>
+            <div className="h-full flex gap-4 justify-center items-center">
+              {panelCoHosts.slice(0, Math.floor(panelCoHosts.length / 2)).map((coHost, index) => (
+                <VideoTile key={coHost.isYou ? `webinar-cohost-${index}` : coHost.socketId} participant={coHost} isHost={false} isCoHost={true} settings={settings} />
+              ))}
+              {hosts.map((host, index) => (
+                <VideoTile key={host.isYou ? `webinar-host-${index}` : host.socketId} participant={host} isHost={true} isCoHost={false} settings={settings} isMainHost={true} />
+              ))}
+              {panelCoHosts.slice(Math.floor(panelCoHosts.length / 2)).map((coHost, index) => (
+                <VideoTile key={coHost.isYou ? `webinar-cohost-right-${index}` : coHost.socketId} participant={coHost} isHost={false} isCoHost={true} settings={settings} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex-1 bg-gradient-to-br from-gray-900/40 via-gray-800/30 to-gray-900/40 rounded-2xl p-4 border border-gray-700/30 shadow-xl overflow-y-auto">
+          {allAudience.length > 0 ? (
+            <>
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider text-center mb-3">
+                Audience ({allAudience.length})
+              </h3>
+              <div className="grid grid-cols-5 xl:grid-cols-6 gap-3">
+                {allAudience.map((person, index) => (
+                  <div key={person.isYou ? `webinar-audience-${index}` : person.socketId} className="aspect-video">
+                    <VideoTile participant={person} isHost={false} settings={settings} />
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="h-full flex items-center justify-center text-gray-500 text-sm">No one else here yet</div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   if (viewMode === 'grid') {
     // Collect all video sources
     const allVideos = []
@@ -362,7 +439,7 @@ const VideoGrid = ({
     participants.forEach(participant => {
       const screenStreams = Array.from(remoteScreenStreams.entries())
         .filter(([key]) => key.startsWith(participant.socketId + '-screen'))
-      screenStreams.forEach(([key, stream]) => {
+      screenStreams.forEach(([, stream]) => {
         allVideos.push({ type: 'remote-screen', stream, name: participant.name, participant })
       })
     })
@@ -483,11 +560,93 @@ const VideoGrid = ({
     )
   }
 
-  // Speaker View
+  // Spotlight Mode - one video fills the whole stage, no thumbnail strip at
+  // all (unlike speaker view, which always keeps one). Works at any size,
+  // including mobile - it's the simplest possible layout.
+  if (viewMode === 'spotlight') {
+    return (
+      <div className={`h-full relative bg-black ${isMobile ? '' : 'pt-16'}`}>
+        <div className="absolute inset-0 flex items-center justify-center">
+          {mainVideo.type?.includes('screen') ? (
+            <video ref={mainVideoRef} autoPlay muted={mainVideo.isYou} playsInline className="w-full h-full object-contain bg-black" />
+          ) : mainVideo.videoEnabled ? (
+            <video
+              key={mainVideo.isYou ? `spotlight-video-${localStreamVersion}` : `spotlight-video-${mainVideo.socketId}`}
+              ref={mainVideoRef}
+              autoPlay
+              muted={mainVideo.isYou}
+              playsInline
+              className={`w-full h-full object-contain bg-black ${mainVideo.isYou && settings.mirrorLocalVideo ? 'scale-x-[-1]' : ''}`}
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-950 flex items-center justify-center">
+              <div className="text-center">
+                {mainVideo.profilePicture ? (
+                  <div className="w-28 h-28 rounded-full overflow-hidden mx-auto mb-4 border-4 border-blue-500 shadow-xl">
+                    <img src={mainVideo.profilePicture} alt={mainVideo.name} className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="w-28 h-28 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span className="text-4xl font-bold text-white">{mainVideo.name?.charAt(0)?.toUpperCase()}</span>
+                  </div>
+                )}
+                <p className="text-gray-300 text-lg">Camera is off</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {settings.showParticipantNames && (
+          <div className="absolute bottom-4 left-4 bg-black/70 px-3 py-2 rounded-lg backdrop-blur-sm flex items-center gap-2 z-10">
+            {mainVideo.type?.includes('screen') && <Monitor size={16} className="text-blue-400" />}
+            <span className="text-white font-medium">{mainVideo.name} {mainVideo.isYou && '(You)'} {mainVideo.type?.includes('screen') && '- Screen'}</span>
+            {mainVideo.isHost && <span className="text-blue-400 text-sm">(Host)</span>}
+          </div>
+        )}
+
+        {pinnedVideo && (
+          <button
+            className="absolute top-4 right-4 bg-blue-600/90 hover:bg-blue-700 text-white px-3 py-2 rounded-lg backdrop-blur-sm transition-all duration-200 flex items-center gap-2 z-10"
+            onClick={() => setPinnedVideo(null)}
+            title="Unpin"
+          >
+            <Pin size={16} className="fill-current" />
+            <span className="text-sm font-medium">Pinned</span>
+          </button>
+        )}
+
+        {/* Small self-view, unless you're the spotlighted video yourself or hid your own tile */}
+        {!mainVideo.isYou && !settings.hideSelfView && (
+          <div className={`absolute ${isMobile ? 'bottom-4 right-4 w-24 h-16' : 'bottom-6 right-6 w-40 h-28'} bg-gray-800 rounded-lg overflow-hidden shadow-2xl ring-2 ring-white/20 z-10`}>
+            {videoEnabled ? (
+              <video
+                key={`spotlight-self-${localStreamVersion}`}
+                autoPlay
+                muted
+                playsInline
+                className={`w-full h-full object-cover ${settings.mirrorLocalVideo ? 'scale-x-[-1]' : ''}`}
+                ref={el => { if (el && localStream) { el.srcObject = localStream; el.play().catch(e => console.log('[VideoGrid] Spotlight self-view play failed:', e)) } }}
+              />
+            ) : (
+              <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                <span className="text-white text-xs font-medium">{userName?.charAt(0)?.toUpperCase()}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Speaker / Sidebar View - also the fallback for interview/webinar on
+  // mobile, and for sidebar on mobile (not enough width for a side column
+  // there). isSidebarLayout only changes how this is arranged on screen, the
+  // main-video and thumbnail-collection logic below is shared by both.
+  const isSidebarLayout = viewMode === 'sidebar' && !isMobile
   return (
-    <div className={`h-full flex flex-col ${isMobile ? 'p-2' : settings.compactMode ? 'p-2 pt-14' : 'p-3 pt-16'}`}>
+    <div className={`h-full flex ${isSidebarLayout ? 'flex-row gap-3' : 'flex-col'} ${isMobile ? 'p-2' : settings.compactMode ? 'p-2 pt-14' : 'p-3 pt-16'}`}>
       {/* Main Speaker Video */}
-      <div className={`flex-1 bg-gray-800 rounded-lg overflow-hidden ${settings.compactMode ? 'mb-1' : 'mb-2'} relative min-h-0`}>
+      <div className={`flex-1 bg-gray-800 rounded-lg overflow-hidden ${isSidebarLayout ? '' : settings.compactMode ? 'mb-1' : 'mb-2'} relative min-h-0`}>
         {mainVideo.type?.includes('screen') ? (
           <video ref={mainVideoRef} autoPlay muted={mainVideo.isYou} playsInline className="w-full h-full object-contain bg-black" />
         ) : (
@@ -570,14 +729,18 @@ const VideoGrid = ({
           }
         })
         
-        const maxVisible = isMobile ? 3 : maxVisibleThumbnails
+        // The width-based auto-fit calc below only makes sense for a
+        // horizontal strip; a vertical sidebar just gets a fixed cap.
+        const maxVisible = isSidebarLayout ? 6 : isMobile ? 3 : maxVisibleThumbnails
         const visibleThumbnails = allThumbnails.slice(0, maxVisible)
         const hiddenCount = Math.max(0, allThumbnails.length - maxVisible)
-        
+
         return (
-          <div 
+          <div
             ref={thumbnailContainerRef}
-            className={`flex ${settings.compactMode ? 'space-x-1 px-1 pt-2' : 'space-x-3 px-3 pt-3'} overflow-x-auto pb-1 scrollbar-hide`}
+            className={isSidebarLayout
+              ? `flex flex-col ${settings.compactMode ? 'space-y-1 py-1' : 'space-y-3 py-3'} overflow-y-auto pr-1 scrollbar-hide w-40 flex-shrink-0`
+              : `flex ${settings.compactMode ? 'space-x-1 px-1 pt-2' : 'space-x-3 px-3 pt-3'} overflow-x-auto pb-1 scrollbar-hide`}
           >
             {visibleThumbnails.map((thumb, index) => {
               const isLast = index === maxVisible - 1
@@ -606,7 +769,7 @@ const VideoGrid = ({
                     const screenStreams = Array.from(remoteScreenStreams.entries())
                       .filter(([key]) => key === thumb.element)
                     if (screenStreams.length === 0) return null
-                    const [key, screenStream] = screenStreams[0]
+                    const [, screenStream] = screenStreams[0]
                     
                     return (
                       <div 
@@ -746,10 +909,9 @@ const VideoGrid = ({
 }
 
 // Interview Mode Video Tile Component
-const VideoTile = ({ participant, isInterview, isHost: isTileHost, isCoHost, isMainHost, settings, totalTiles }) => {
+const VideoTile = ({ participant, isHost: isTileHost, isCoHost, isMainHost, settings }) => {
   const videoRef = useRef()
-  const isLight = settings?.theme === 'light'
-  
+
   useEffect(() => {
     if (videoRef.current && participant.stream) {
       videoRef.current.srcObject = participant.stream

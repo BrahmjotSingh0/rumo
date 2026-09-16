@@ -28,7 +28,7 @@ const FEATURE_LABELS = [
   { key: 'disableAllCameras', label: 'Disable all cameras', description: 'The Disable All Cameras host control' },
   { key: 'disableAllScreenShares', label: 'Disable all screen shares', description: 'The Disable All Screen Shares host control' },
   { key: 'lockMeeting', label: 'Lock meeting', description: 'Prevent anyone new from joining' },
-  { key: 'layoutSwitch', label: 'Layout switcher', description: 'Grid / speaker / interview view switcher' },
+  { key: 'layoutSwitch', label: 'Layout switcher', description: 'Grid / speaker / sidebar / spotlight / interview / webinar layout switcher' },
   { key: 'raiseHand', label: 'Raise hand', description: 'The raise-hand control' },
   { key: 'reactions', label: 'Reactions', description: 'Emoji reactions during a call' },
   { key: 'liveCaptions', label: 'Live captions', description: 'Browser-only speech-to-text, shared with the room' },
@@ -193,16 +193,16 @@ const Admin = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 px-6 py-10">
+    <div className="min-h-screen bg-gray-900 px-4 py-6 sm:px-6 sm:py-10">
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-2xl font-bold text-white">Admin settings</h1>
-          <Link to="/" className="text-sm text-gray-400 hover:text-white">
+        <div className="flex items-center justify-between gap-3 mb-6 sm:mb-8">
+          <h1 className="text-xl sm:text-2xl font-bold text-white truncate">Admin settings</h1>
+          <Link to="/" className="text-sm text-gray-400 hover:text-white shrink-0">
             Back to app
           </Link>
         </div>
 
-        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 space-y-6">
+        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-4 sm:p-6 space-y-6">
           <div>
             <h2 className="text-lg font-semibold text-white mb-1">Branding</h2>
             <p className="text-sm text-gray-400">
@@ -308,7 +308,7 @@ const Admin = () => {
           </Button>
         </div>
 
-        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 space-y-4 mt-6">
+        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-4 sm:p-6 space-y-4 mt-6">
           <div>
             <h2 className="text-lg font-semibold text-white mb-1">Virtual backgrounds</h2>
             <p className="text-sm text-gray-400">
@@ -316,13 +316,13 @@ const Admin = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {backgroundPresets.map((preset) => (
               <div key={preset.id} className="relative aspect-video rounded-lg overflow-hidden border border-gray-700 group">
                 <img src={preset.url} alt={preset.name} className="w-full h-full object-cover" />
                 <button
                   onClick={() => removeBackground(preset.id)}
-                  className="absolute top-1 right-1 bg-black/70 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-1 right-1 bg-black/70 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-70 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                   title="Remove"
                 >
                   ×

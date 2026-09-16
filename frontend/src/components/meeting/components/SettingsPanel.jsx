@@ -329,18 +329,25 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
               <div className="space-y-6">
                 <div>
                   <label className={`block text-sm font-medium ${textClass} mb-3`}>Default Layout</label>
-                  <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                    {['grid', 'speaker', 'interview'].map(layout => (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
+                    {[
+                      { id: 'grid', label: 'Grid' },
+                      { id: 'speaker', label: 'Speaker' },
+                      { id: 'sidebar', label: 'Sidebar' },
+                      { id: 'spotlight', label: 'Spotlight' },
+                      { id: 'interview', label: 'Interview' },
+                      { id: 'webinar', label: 'Webinar' }
+                    ].map(layout => (
                       <button
-                        key={layout}
-                        onClick={() => updateSetting('layout', layout)}
+                        key={layout.id}
+                        onClick={() => updateSetting('layout', layout.id)}
                         className={`p-3 sm:p-4 rounded-xl border-2 transition-all duration-200 ${
-                          settings.layout === layout
+                          settings.layout === layout.id
                             ? `border-blue-500 ${isLight ? 'bg-blue-50' : 'bg-blue-500/10'} shadow-lg`
                             : `${inputBorderClass} ${hoverClass} ${isLight ? 'hover:border-gray-300' : 'hover:border-gray-500/50'}`
                         }`}
                       >
-                        <div className={`text-xs sm:text-sm ${textClass} capitalize font-medium`}>{layout} View</div>
+                        <div className={`text-xs sm:text-sm ${textClass} font-medium`}>{layout.label}</div>
                       </button>
                     ))}
                   </div>
