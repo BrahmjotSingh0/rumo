@@ -123,7 +123,33 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
-  
+
+  /* A visible-but-unobtrusive scrollbar for the in-call dark UI (settings,
+     side panel, host tools) instead of the browser's default light/white
+     one, which stands out badly against a dark background. */
+  .themed-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+  }
+
+  .themed-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .themed-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .themed-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.4);
+    border-radius: 9999px;
+  }
+
+  .themed-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(148, 163, 184, 0.6);
+  }
+
   .glass {
     @apply bg-white/10 backdrop-blur-md border border-white/20;
   }

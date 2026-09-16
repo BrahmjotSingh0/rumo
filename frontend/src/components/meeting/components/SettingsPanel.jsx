@@ -32,7 +32,7 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
   const footerBgClass = isLight ? 'bg-gray-50/30' : 'bg-gray-800/30'
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[200] flex items-center justify-center p-2 sm:p-4">
       <div className={`${bgClass} backdrop-blur-xl rounded-2xl border ${borderClass} w-full max-w-2xl max-h-[90vh] sm:max-h-[80vh] overflow-hidden shadow-2xl flex flex-col`}>
         {/* Header */}
         <div className={`flex items-center justify-between p-4 sm:p-6 border-b ${borderClass} bg-gradient-to-r ${headerBgClass}`}>
@@ -52,7 +52,7 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
 
         <div className="flex flex-col sm:flex-row flex-1 overflow-hidden">
           {/* Sidebar - Horizontal tabs on mobile, vertical on desktop */}
-          <div className={`${sidebarBgClass} p-2 sm:p-4 sm:w-48 border-b sm:border-b-0 sm:border-r ${borderClass} overflow-x-auto sm:overflow-x-visible`}>
+          <div className={`${sidebarBgClass} p-2 sm:p-4 sm:w-48 border-b sm:border-b-0 sm:border-r ${borderClass} overflow-x-auto sm:overflow-x-visible themed-scrollbar`}>
             <nav className="flex sm:flex-col sm:space-y-2 gap-2 sm:gap-0">
               {tabs.map(tab => {
                 const Icon = tab.icon
@@ -75,7 +75,7 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
           </div>
 
           {/* Content */}
-          <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
+          <div className="flex-1 p-4 sm:p-6 overflow-y-auto themed-scrollbar">
             {activeTab === 'appearance' && (
               <div className="space-y-6">
                 <div>

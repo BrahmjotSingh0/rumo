@@ -17,7 +17,7 @@ import VideoGrid from './meeting/VideoGrid'
 import MeetingSidebar from './meeting/MeetingSidebar'
 import MeetingControls from './meeting/MeetingControls'
 import JoinRequestPopup from './meeting/JoinRequestPopup'
-import { playUserJoined, playYouJoined, playUserLeft, playScreenShareStart, playScreenShareStop, playJoinRequest } from '../utils/sounds'
+import { playUserJoined, playYouJoined, playUserLeft, playScreenShareStart, playScreenShareStop, playJoinRequest, playHandRaised, playReaction, playRecordingStart, playRecordingStop, playRemoved } from '../utils/sounds'
 
 // All layouts VideoGrid knows how to render (see its viewMode prop). Order
 // here is the order shown in the layout picker menu.
@@ -544,12 +544,17 @@ const MeetingPro = () => {
               displaySurface: settings.displaySurface
             })}`, 'info')
 
-            const isScreenShare = settings.displaySurface === 'monitor' || 
-                                 settings.displaySurface === 'window' || 
+            // Note: deliberately not using a raw "settings.width > 1280" fallback here.
+            // A camera on the "High" quality preset also requests up to 1920px wide, which
+            // would otherwise misclassify a perfectly normal camera track as a screen share
+            // on the very first video track received from a peer. displaySurface/deviceId
+            // are reliable in every browser that can screen share at all, and currentCount
+            // correctly catches a second video track arriving from the same peer.
+            const isScreenShare = settings.displaySurface === 'monitor' ||
+                                 settings.displaySurface === 'window' ||
                                  settings.displaySurface === 'browser' ||
-                                 (settings.deviceId && settings.deviceId.startsWith('screen:')) ||
-                                 (settings.width && settings.width > 1280)
-            
+                                 (settings.deviceId && settings.deviceId.startsWith('screen:'))
+
             const currentCount = peerStreamCount.current.get(sender) || 0
             
             if (isScreenShare || currentCount > 0) {
@@ -763,6 +768,8 @@ const MeetingPro = () => {
 
       currentSocket.on('kicked-from-room', ({ by }) => {
         if (!mounted) return
+        stopAllMedia({ closePeers: true })
+        playRemoved()
         toast.error(`You were removed from the meeting by ${by}`)
         setTimeout(() => navigate('/'), 2000)
       })
@@ -833,6 +840,7 @@ const MeetingPro = () => {
         if (!mounted) return
         setParticipants(prev => prev.map(p => p.socketId === socketId ? { ...p, handRaised: true } : p))
         toast(`✋ ${userName} raised their hand`, { duration: 3000 })
+        playHandRaised()
       })
 
       currentSocket.on('hand-lowered', ({ socketId }) => {
@@ -843,6 +851,7 @@ const MeetingPro = () => {
       currentSocket.on('reaction-received', ({ userName, emoji }) => {
         if (!mounted) return
         toast(`${emoji} ${userName}`, { duration: 2500 })
+        playReaction()
       })
 
       currentSocket.on('breakout-assigned', ({ breakoutRoomId, breakoutTitle, mainRoomId }) => {
@@ -954,31 +963,44 @@ const MeetingPro = () => {
       currentSocket.on('join-rejected', ({ by, message }) => {
         if (!mounted) return
         setIsWaiting(false)
+        stopAllMedia({ closePeers: true })
+        playRemoved()
         toast.error(message || `Your request was declined by ${by}`)
         setTimeout(() => navigate('/'), 3000)
       })
 
       currentSocket.on('removed-from-room', () => {
         if (!mounted) return
+        stopAllMedia({ closePeers: true })
+        playRemoved()
         toast.error('You have been removed from the meeting')
         setTimeout(() => navigate('/'), 2000)
       })
 
       currentSocket.on('session-replaced', ({ message }) => {
         if (!mounted) return
+        stopAllMedia({ closePeers: true })
+        playRemoved()
         toast.error(message || 'You joined from another window/device', { duration: 5000 })
         setTimeout(() => navigate('/'), 2000)
       })
-      
-      // Handle unexpected disconnection
+
+      // Handle unexpected disconnection. There's no reconnect-and-rejoin flow
+      // (a fresh join is required either way), so this is already a terminal
+      // state for the session - stop the camera/mic right away to match what
+      // the toast below tells the user, instead of leaving them lit until
+      // the tab happens to unmount some other way.
       currentSocket.on('disconnect', (reason) => {
         if (!mounted) return
         console.log('Socket disconnected:', reason)
         addDebugLog(`Disconnected: ${reason}`, 'warning')
-        
+
         // Only show error if it wasn't a manual disconnect
         if (reason !== 'io client disconnect') {
+          stopAllMedia({ closePeers: true })
+          playRemoved()
           toast.error('Connection lost. Your media has been stopped.', { duration: 3000 })
+          setTimeout(() => navigate('/'), 2500)
         }
       })
       
@@ -1031,53 +1053,8 @@ const MeetingPro = () => {
     
     return () => {
       mounted = false
-
-      // Stop blur processor if active
-      if (blurProcessorRef.current) {
-        blurProcessorRef.current.stop()
-        blurProcessorRef.current = null
-      }
-      
-      // Stop noise suppressor if active
-      if (noiseSuppressorRef.current) {
-        noiseSuppressorRef.current.dispose()
-        noiseSuppressorRef.current = null
-      }
-      
-      // Stop original video track if stored
-      if (originalVideoTrackRef.current) {
-        originalVideoTrackRef.current.stop()
-        originalVideoTrackRef.current = null
-      }
-      
-      // Stop original audio track if stored
-      if (originalAudioTrackRef.current) {
-        originalAudioTrackRef.current.stop()
-        originalAudioTrackRef.current = null
-      }
-
-      // Stop local stream
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => {
-          track.stop()
-
-        })
-        localStreamRef.current = null
-      }
-      
-      // Stop screen stream if active
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getTracks().forEach(track => {
-          track.stop()
-
-        })
-        screenStreamRef.current = null
-      }
-      
-      // Close all peer connections
+      stopAllMedia({ closePeers: true })
       if (currentSocket) currentSocket.disconnect()
-      peerConnections.current.forEach(pc => pc.close())
-      peerConnections.current.clear()
     }
     // isHost is intentionally excluded: this effect's own 'host-status'/'new-host'
     // handlers are what set it, so depending on it here would tear down and
@@ -1154,13 +1131,14 @@ const MeetingPro = () => {
         if (event.track.kind === 'video') {
           const settings = event.track.getSettings()
 
-          // Check if screen share by properties
-          const isScreenShare = settings.displaySurface === 'monitor' || 
-                               settings.displaySurface === 'window' || 
+          // Check if screen share by properties. No raw resolution fallback -
+          // see the matching comment in the other ontrack handler above; a
+          // "High" quality camera also asks for up to 1920px wide.
+          const isScreenShare = settings.displaySurface === 'monitor' ||
+                               settings.displaySurface === 'window' ||
                                settings.displaySurface === 'browser' ||
-                               (settings.deviceId && settings.deviceId.startsWith('screen:')) ||
-                               (settings.width && settings.width > 1280)
-          
+                               (settings.deviceId && settings.deviceId.startsWith('screen:'))
+
           // Track video stream count
           const currentCount = peerStreamCount.current.get(socketId) || 0
           
@@ -1685,14 +1663,15 @@ const MeetingPro = () => {
     }
   }
 
-  const sendMessage = () => {
-    if (newMessage.trim() && socket) {
+  const sendMessage = (text) => {
+    const trimmed = (text ?? newMessage).trim()
+    if (trimmed && socket) {
       socket.emit('send-message', {
         roomId,
-        message: newMessage,
+        message: trimmed,
         userName
       })
-      setNewMessage('')
+      if (text === undefined) setNewMessage('')
     }
   }
 
@@ -1794,6 +1773,7 @@ const MeetingPro = () => {
       recorder.start()
       mediaRecorderRef.current = recorder
       setIsRecording(true)
+      playRecordingStart()
       toast.success('Recording your camera & mic - saved to your device when you stop')
     } catch (error) {
       console.error('Failed to start recording:', error)
@@ -1807,6 +1787,7 @@ const MeetingPro = () => {
     }
     mediaRecorderRef.current = null
     setIsRecording(false)
+    playRecordingStop()
     toast.success('Recording saved to your downloads')
   }
 
@@ -1836,15 +1817,21 @@ const MeetingPro = () => {
     }
   }
 
-  const leaveMeeting = () => {
-    addDebugLog('Leaving meeting - starting cleanup...', 'info')
-
+  // Single source of truth for releasing the camera/mic (and everything
+  // downstream of them: screen share, background-blur/noise-suppression
+  // processors, the recorder). Every exit path - the Leave button, an
+  // unmount for any reason, a hard tab close, and getting kicked/removed/
+  // disconnected - funnels through this so the browser's camera/mic
+  // indicator reliably goes dark instead of depending on whichever cleanup
+  // path happened to run. Function declaration (not a const) so it's
+  // hoisted and callable from the socket handlers registered earlier in
+  // this component, which only ever close over stable refs here anyway.
+  function stopAllMedia({ closePeers = false } = {}) {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop()
       mediaRecorderRef.current = null
     }
 
-    // Stop all local media tracks (camera and mic)
     if (localStreamRef.current) {
       addDebugLog(`Stopping ${localStreamRef.current.getTracks().length} local tracks`, 'info')
       localStreamRef.current.getTracks().forEach(track => {
@@ -1854,46 +1841,46 @@ const MeetingPro = () => {
       localStreamRef.current = null
       setLocalStream(null)
     }
-    
-    // Stop screen sharing if active
+
     if (screenStreamRef.current) {
-      addDebugLog(`Stopping screen share`, 'info')
-      screenStreamRef.current.getTracks().forEach(track => {
-        track.stop()
-      })
+      addDebugLog('Stopping screen share', 'info')
+      screenStreamRef.current.getTracks().forEach(track => track.stop())
       screenStreamRef.current = null
       setScreenStream(null)
       setScreenSharing(false)
     }
-    
-    // Stop original video track if stored
+
     if (originalVideoTrackRef.current) {
-      addDebugLog('Stopping original video track', 'info')
       originalVideoTrackRef.current.stop()
       originalVideoTrackRef.current = null
     }
-    
-    // Stop original audio track if stored
+
     if (originalAudioTrackRef.current) {
-      addDebugLog('Stopping original audio track', 'info')
       originalAudioTrackRef.current.stop()
       originalAudioTrackRef.current = null
     }
-    
-    // Clean up blur processor
+
     if (blurProcessorRef.current) {
-      addDebugLog('Stopping blur processor', 'info')
       blurProcessorRef.current.stop()
       blurProcessorRef.current = null
     }
-    
-    // Clean up noise suppressor
+
     if (noiseSuppressorRef.current) {
-      addDebugLog('Disposing noise suppressor', 'info')
       noiseSuppressorRef.current.dispose()
       noiseSuppressorRef.current = null
     }
-    
+
+    if (closePeers && peerConnections.current.size > 0) {
+      peerConnections.current.forEach(pc => pc.close())
+      peerConnections.current.clear()
+    }
+  }
+
+  const leaveMeeting = () => {
+    addDebugLog('Leaving meeting - starting cleanup...', 'info')
+
+    stopAllMedia({ closePeers: true })
+
     // Reset background blur/image settings - neither should carry into the next meeting
     if (settings.backgroundBlur) {
       updateSetting('backgroundBlur', false)
@@ -1906,16 +1893,6 @@ const MeetingPro = () => {
     if (wakeLock) {
       wakeLock.release()
       setWakeLock(null)
-    }
-    
-    // Close all peer connections
-    if (peerConnections.current.size > 0) {
-      addDebugLog(`Closing ${peerConnections.current.size} peer connections`, 'info')
-      peerConnections.current.forEach((pc, socketId) => {
-        addDebugLog(`Closing peer: ${socketId.substring(0, 8)}`, 'info')
-        pc.close()
-      })
-      peerConnections.current.clear()
     }
     
     // Disconnect socket
@@ -2014,30 +1991,10 @@ const MeetingPro = () => {
   
   // Cleanup on browser tab close/refresh
   useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      // Stop all media tracks
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop())
-      }
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getTracks().forEach(track => track.stop())
-      }
-      if (originalVideoTrackRef.current) {
-        originalVideoTrackRef.current.stop()
-      }
-      if (originalAudioTrackRef.current) {
-        originalAudioTrackRef.current.stop()
-      }
-      
-      // Clean up processors
-      if (blurProcessorRef.current) {
-        blurProcessorRef.current.stop()
-      }
-      if (noiseSuppressorRef.current) {
-        noiseSuppressorRef.current.dispose()
-      }
-      
-      // Note: We don't prevent default - just clean up
+    const handleBeforeUnload = () => {
+      // Not preventing default - just releasing the camera/mic before the
+      // page actually goes away.
+      stopAllMedia({ closePeers: true })
     }
     
     window.addEventListener('beforeunload', handleBeforeUnload)
@@ -2789,7 +2746,7 @@ const MeetingPro = () => {
                   </button>
 
                   {showLayoutMenu && (
-                    <div className={`absolute top-full mt-2 ${isMobile ? 'right-0' : 'left-0'} bg-gray-800/95 backdrop-blur-xl border border-gray-600/50 rounded-xl shadow-2xl py-2 min-w-[180px] z-50`}>
+                    <div className="absolute top-full mt-2 right-0 bg-gray-800/95 backdrop-blur-xl border border-gray-600/50 rounded-xl shadow-2xl py-2 min-w-[180px] max-w-[calc(100vw-2rem)] z-50">
                       {LAYOUT_OPTIONS.map((option) => {
                         const Icon = option.icon
                         const isActive = viewMode === option.id
@@ -2816,10 +2773,11 @@ const MeetingPro = () => {
               )
             })()}
 
-            {/* Sidebar toggle - only functional on mobile/tablet */}
+            {/* Sidebar toggle - collapses the panel on any screen size */}
             <button
-              onClick={() => isMobile && setSidebarOpen(!sidebarOpen)}
-              className={`${isMobile ? 'p-2' : 'p-3'} ${buttonClasses} rounded-xl transition-all duration-200 ${isMobile ? 'hover:scale-105' : 'opacity-50 cursor-not-allowed'} shadow-lg relative`}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className={`${isMobile ? 'p-2' : 'p-3'} ${buttonClasses} rounded-xl transition-all duration-200 hover:scale-105 shadow-lg relative`}
+              title={sidebarOpen ? 'Hide panel' : 'Show panel'}
             >
               {sidebarOpen ? <X size={isMobile ? 16 : 18} /> : <Users size={isMobile ? 16 : 18} />}
               {messages.length > 0 && activeTab !== 'chat' && !sidebarOpen && (

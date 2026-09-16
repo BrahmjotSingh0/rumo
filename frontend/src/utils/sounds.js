@@ -118,6 +118,56 @@ class SoundManager {
     this.playTone(1046.5, 0.2, 0.25, now + 0.3)
   }
 
+  // Play a small upward "pop" (raising a hand)
+  playHandRaised() {
+    const ctx = this.initAudioContext()
+    const now = ctx.currentTime
+
+    this.playTone(587.33, 0.08, 0.18, now) // D5
+    this.playTone(880, 0.12, 0.18, now + 0.06) // A5
+  }
+
+  // Play a light pop (reaction from someone else)
+  playReaction() {
+    this.playBeep(1200, 0.06, 0.12, 'sine')
+  }
+
+  // Play recording start (deliberate, slightly urgent double beep)
+  playRecordingStart() {
+    const ctx = this.initAudioContext()
+    const now = ctx.currentTime
+
+    this.playTone(440, 0.1, 0.22, now)
+    this.playTone(440, 0.14, 0.22, now + 0.14)
+  }
+
+  // Play recording stop (single lower tone)
+  playRecordingStop() {
+    this.playBeep(330, 0.18, 0.2, 'sine')
+  }
+
+  // Play poll notification (a poll was started)
+  playPollCreated() {
+    const ctx = this.initAudioContext()
+    const now = ctx.currentTime
+
+    // B5 -> D6, distinct from the plain chat-message ping
+    this.playTone(987.77, 0.1, 0.2, now)
+    this.playTone(1174.66, 0.15, 0.2, now + 0.08)
+  }
+
+  // Play a low, unambiguous tone for "you're being removed" (kicked,
+  // rejected, session replaced, disconnected) - deliberately not the same
+  // cheerful descending tone as a normal user-left, so it doesn't read as
+  // "someone else just left".
+  playRemoved() {
+    const ctx = this.initAudioContext()
+    const now = ctx.currentTime
+
+    this.playTone(392, 0.18, 0.2, now) // G4
+    this.playTone(293.66, 0.28, 0.2, now + 0.14) // D4
+  }
+
   // Helper to play a single tone
   playTone(frequency, duration, volume, startTime) {
     if (!this.enabled) return
@@ -168,3 +218,9 @@ export const playChatMessage = () => soundManager.playChatMessage()
 export const playScreenShareStart = () => soundManager.playScreenShareStart()
 export const playScreenShareStop = () => soundManager.playScreenShareStop()
 export const playJoinRequest = () => soundManager.playJoinRequest()
+export const playHandRaised = () => soundManager.playHandRaised()
+export const playReaction = () => soundManager.playReaction()
+export const playRecordingStart = () => soundManager.playRecordingStart()
+export const playRecordingStop = () => soundManager.playRecordingStop()
+export const playPollCreated = () => soundManager.playPollCreated()
+export const playRemoved = () => soundManager.playRemoved()

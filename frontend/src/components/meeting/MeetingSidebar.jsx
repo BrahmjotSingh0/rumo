@@ -1,10 +1,11 @@
-import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical, Hand, BarChart3, Plus, Trash2, Paperclip, FileText, Download, DoorOpen } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical, Hand, BarChart3, Plus, Trash2, Paperclip, FileText, Download, Send, ChevronsRight } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import ParticipantContextMenu from './components/ParticipantContextMenu'
-import HostSettings from './components/HostSettings'
+import HostToolsPanel from './components/HostToolsPanel'
 import branding from '../../config/branding'
 import { API_BASE_URL } from '../../utils/constants'
+import { playPollCreated } from '../../utils/sounds'
 
 const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
 const isImageFile = (name = '') => IMAGE_EXTENSIONS.some(ext => name.toLowerCase().endsWith(ext))
@@ -27,8 +28,6 @@ const MeetingSidebar = ({
   audioEnabled,
   videoEnabled,
   messages,
-  newMessage,
-  setNewMessage,
   sendMessage,
   sendFile,
   isMobile,
@@ -38,6 +37,8 @@ const MeetingSidebar = ({
 }) => {
   const [contextMenu, setContextMenu] = useState(null)
   const menuOpeningRef = useRef(false)
+  const [draft, setDraft] = useState('')
+  const [showHostTools, setShowHostTools] = useState(false)
   const [poll, setPoll] = useState(null)
   const [myVote, setMyVote] = useState(null)
   const [showCreatePoll, setShowCreatePoll] = useState(false)
@@ -118,7 +119,10 @@ const MeetingSidebar = ({
 
     const handlePollCreated = (newPoll) => {
       setPoll(prev => {
-        if (!prev || prev.id !== newPoll.id) setMyVote(null)
+        if (!prev || prev.id !== newPoll.id) {
+          setMyVote(null)
+          playPollCreated()
+        }
         return newPoll
       })
     }
@@ -166,6 +170,8 @@ const MeetingSidebar = ({
   // Host always sees this; co-host only if the host has left participant
   // management enabled for co-hosts (see roomSettings.coHostsCanManageParticipants).
   const canOpenParticipantMenu = isHost || (userRole === 'co-host' && roomSettings.coHostsCanManageParticipants)
+  const canOpenHostTools = branding.features.hostControls !== false &&
+    (isHost || (userRole === 'co-host' && roomSettings.coHostsCanChangeSettings))
 
   const handleContextMenu = (e, participant) => {
     e.preventDefault()
@@ -402,65 +408,101 @@ const MeetingSidebar = ({
   return (
     <div className={`${isMobile ? `absolute inset-0 z-40 ${bgClass} backdrop-blur-xl` : 'relative'} w-full ${!isMobile ? 'max-w-sm' : ''} ${bgClass} backdrop-blur-xl ${!isMobile ? `border-l ${borderClass}` : ''} flex flex-col shadow-2xl`}>
       {/* Sidebar Header */}
-      <div className={`p-4 md:p-6 border-b ${borderClass} bg-gradient-to-r ${headerBgClass}`}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className={`${textClass} font-semibold text-lg`}>Meeting Info</h2>
-          {/* Only show close button on mobile/tablet - hidden on desktop (md and above) */}
-          <button 
-            onClick={() => isMobile && setSidebarOpen(false)}
-            className={`md:hidden p-2 ${hoverClass} rounded-xl ${textSecondaryClass} hover:${textClass} transition-all duration-200`}
+      <div className={`p-3 md:p-4 border-b ${borderClass} bg-gradient-to-r ${headerBgClass}`}>
+        <div className="flex items-center justify-between mb-3 gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            {canOpenHostTools && (
+              <button
+                onClick={() => setShowHostTools(true)}
+                className={`p-2 rounded-xl ${hoverClass} text-blue-500 transition-all duration-200 flex-shrink-0`}
+                title="Host tools"
+              >
+                <Shield size={18} />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className={`p-2 ${hoverClass} rounded-xl ${textSecondaryClass} hover:${textClass} transition-all duration-200 flex-shrink-0`}
+            title="Collapse panel"
           >
-            <X size={20} />
+            <ChevronsRight size={20} className="hidden md:block" />
+            <X size={20} className="md:hidden" />
           </button>
         </div>
-        <div className="flex space-x-2">
+        <div className={`flex gap-1 p-1 rounded-full ${isLight ? 'bg-gray-100' : 'bg-gray-800/60'}`}>
           <button
             onClick={() => setActiveTab('participants')}
-            className={`flex-1 py-3 px-4 text-sm font-medium rounded-xl transition-all duration-200 ${
-              activeTab === 'participants' 
-                ? `${activeTabClass} shadow-lg` 
+            className={`flex-1 py-2 px-2 text-xs md:text-sm font-medium rounded-full transition-all duration-200 ${
+              activeTab === 'participants'
+                ? `${activeTabClass} shadow-lg`
                 : inactiveTabClass
             }`}
           >
-            <Users size={14} className="inline mr-2" />
+            <Users size={14} className="inline mr-1.5 -mt-0.5" />
             People ({participants.length + 1})
           </button>
           {branding.features.chat && (
             <button
               onClick={() => setActiveTab('chat')}
-              className={`flex-1 py-3 px-4 text-sm font-medium rounded-xl transition-all duration-200 ${
+              className={`flex-1 py-2 px-2 text-xs md:text-sm font-medium rounded-full transition-all duration-200 ${
                 activeTab === 'chat'
                   ? `${activeTabClass} shadow-lg`
                   : inactiveTabClass
               }`}
             >
-              <MessageCircle size={14} className="inline mr-2" />
+              <MessageCircle size={14} className="inline mr-1.5 -mt-0.5" />
               Chat
             </button>
           )}
           {branding.features.polls && (
             <button
               onClick={() => setActiveTab('polls')}
-              className={`relative flex-1 py-3 px-4 text-sm font-medium rounded-xl transition-all duration-200 ${
+              className={`relative flex-1 py-2 px-2 text-xs md:text-sm font-medium rounded-full transition-all duration-200 ${
                 activeTab === 'polls'
                   ? `${activeTabClass} shadow-lg`
                   : inactiveTabClass
               }`}
             >
-              <BarChart3 size={14} className="inline mr-2" />
+              <BarChart3 size={14} className="inline mr-1.5 -mt-0.5" />
               Polls
               {poll?.isOpen && activeTab !== 'polls' && (
-                <span className="absolute top-1.5 right-2 w-2 h-2 bg-red-500 rounded-full" />
+                <span className="absolute top-1 right-2 w-2 h-2 bg-red-500 rounded-full" />
               )}
             </button>
           )}
         </div>
       </div>
 
+      {showHostTools && (
+        <HostToolsPanel
+          onClose={() => setShowHostTools(false)}
+          isHost={isHost}
+          roomSettings={roomSettings}
+          onMuteAll={handleMuteAll}
+          onToggleChat={handleToggleChat}
+          onToggleRoomType={handleToggleRoomType}
+          onDisableAllCameras={handleDisableAllCameras}
+          onDisableAllScreenShares={handleDisableAllScreenShares}
+          onLockMeeting={handleLockMeeting}
+          onToggleSelfUnmute={handleToggleSelfUnmute}
+          onToggleParticipantScreenShare={handleToggleParticipantScreenShare}
+          onSetCoHostPermissions={handleSetCoHostPermissions}
+          features={branding.features}
+          settings={settings}
+          breakoutRooms={breakoutRooms}
+          breakoutCount={breakoutCount}
+          setBreakoutCount={setBreakoutCount}
+          createBreakoutRooms={createBreakoutRooms}
+          autoAssignBreakouts={autoAssignBreakouts}
+          closeBreakoutRooms={closeBreakoutRooms}
+        />
+      )}
+
       {/* Sidebar Content */}
       <div className="flex-1 overflow-hidden">
         {activeTab === 'polls' ? (
-          <div className="p-4 space-y-4 overflow-y-auto h-full">
+          <div className="p-4 space-y-4 overflow-y-auto h-full themed-scrollbar">
             {canManagePoll && (
               <div className={`${itemBgClass} rounded-lg p-3`}>
                 {showCreatePoll ? (
@@ -565,63 +607,23 @@ const MeetingSidebar = ({
             )}
           </div>
         ) : activeTab === 'participants' ? (
-          <div className="p-4 space-y-3 overflow-y-auto h-full">
-            {/* Host Settings - host always, co-host only if the host has granted it */}
-            {(isHost || (userRole === 'co-host' && roomSettings.coHostsCanChangeSettings)) && (
-              <HostSettings
-                roomSettings={roomSettings}
-                isHost={isHost}
-                onMuteAll={handleMuteAll}
-                onToggleChat={handleToggleChat}
-                onToggleRoomType={handleToggleRoomType}
-                onDisableAllCameras={handleDisableAllCameras}
-                onDisableAllScreenShares={handleDisableAllScreenShares}
-                onLockMeeting={handleLockMeeting}
-                onToggleSelfUnmute={handleToggleSelfUnmute}
-                onToggleParticipantScreenShare={handleToggleParticipantScreenShare}
-                onSetCoHostPermissions={handleSetCoHostPermissions}
-                features={branding.features}
-                settings={settings}
-              />
-            )}
-
-            {/* Breakout rooms - host only. Each one is a real room (see
-                handleCreateBreakoutRooms), so assigning someone navigates
-                their browser to it - no separate mesh handling needed. */}
-            {isHost && branding.features.breakoutRooms && (
-              <div className={`${itemBgClass} rounded-lg p-3`}>
-                <div className="flex items-center gap-2 mb-2">
-                  <DoorOpen size={14} className={textSecondaryClass} />
-                  <p className={`${textSecondaryClass} text-xs font-semibold uppercase tracking-wide`}>Breakout rooms</p>
+          <div className="p-4 space-y-3 overflow-y-auto h-full themed-scrollbar">
+            {/* Host Controls and Breakout Rooms now live in the Host tools
+                modal (shield icon, header) - see HostToolsPanel. Keeping
+                this list free of host-only chrome for regular attendees. */}
+            {canOpenHostTools && (
+              <button
+                onClick={() => setShowHostTools(true)}
+                className={`w-full flex items-center gap-3 p-3 ${itemBgClass} rounded-lg hover:ring-2 hover:ring-blue-500/30 transition-all text-left`}
+              >
+                <div className="p-2 bg-blue-500/15 rounded-lg">
+                  <Shield size={16} className="text-blue-500" />
                 </div>
-                {breakoutRooms.length === 0 ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={2}
-                      max={20}
-                      value={breakoutCount}
-                      onChange={(e) => setBreakoutCount(Math.min(20, Math.max(2, parseInt(e.target.value, 10) || 2)))}
-                      className={`w-16 ${inputBgClass} ${textClass} px-2 py-1.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                    />
-                    <button onClick={createBreakoutRooms} className={`flex-1 px-3 py-1.5 text-sm rounded-lg ${buttonBgClass} hover:bg-blue-700 text-white font-medium`}>
-                      Create {breakoutCount} breakout rooms
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className={`${textSecondaryClass} text-xs`}>{breakoutRooms.length} breakout rooms ready. Assign participants below, or:</p>
-                    <div className="flex gap-2">
-                      <button onClick={autoAssignBreakouts} className={`flex-1 px-3 py-1.5 text-xs rounded-lg ${buttonBgClass} hover:bg-blue-700 text-white font-medium`}>
-                        Auto-assign everyone
-                      </button>
-                      <button onClick={closeBreakoutRooms} className={`px-3 py-1.5 text-xs rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium`}>
-                        Close all
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`${textClass} font-medium text-sm`}>Host tools</p>
+                  <p className={`${textSecondaryClass} text-xs`}>Mute all, lock room, breakout rooms, and more</p>
+                </div>
+              </button>
             )}
 
             {/* Current User */}
@@ -710,7 +712,7 @@ const MeetingSidebar = ({
         ) : (
           /* Chat Tab */
           <div className="flex flex-col h-full">
-            <div className="flex-1 p-4 overflow-y-auto space-y-3">
+            <div className="flex-1 p-4 overflow-y-auto space-y-3 themed-scrollbar">
               {messages.map(message => (
                 <div key={message.id} className={`${chatBgClass} rounded-lg p-3`}>
                   <div className="flex items-start gap-2 mb-2">
@@ -759,8 +761,8 @@ const MeetingSidebar = ({
 
             {/* Chat Input - Only show if chat is enabled */}
             {roomSettings.allowChat ? (
-              <div className={`p-4 border-t ${borderClass}`}>
-                <div className="flex space-x-2">
+              <div className={`p-3 border-t ${borderClass}`}>
+                <div className="flex items-center gap-2">
                   {branding.features.fileSharing && sendFile && (
                     <>
                       <input
@@ -771,23 +773,33 @@ const MeetingSidebar = ({
                       />
                       <label
                         htmlFor="chat-file-input"
-                        className={`px-3 py-2 ${inputBgClass} ${textSecondaryClass} hover:${textClass} rounded-lg cursor-pointer flex items-center transition-colors`}
+                        className={`flex-shrink-0 w-9 h-9 ${inputBgClass} ${textSecondaryClass} hover:${textClass} rounded-lg cursor-pointer flex items-center justify-center transition-colors`}
                         title="Attach a file"
                       >
-                        <Paperclip size={18} />
+                        <Paperclip size={16} />
                       </label>
                     </>
                   )}
                   <input
                     type="text"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
                     placeholder="Type a message..."
-                    className={`flex-1 ${inputBgClass} ${textClass} px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                    onKeyPress={(e) => { if (e.key === 'Enter') sendMessage() }}
+                    className={`flex-1 min-w-0 ${inputBgClass} ${textClass} px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && draft.trim()) {
+                        sendMessage(draft)
+                        setDraft('')
+                      }
+                    }}
                   />
-                  <button onClick={sendMessage} className={`px-4 py-2 ${buttonBgClass} hover:bg-blue-700 text-white rounded-lg transition-colors`}>
-                    Send
+                  <button
+                    onClick={() => { if (draft.trim()) { sendMessage(draft); setDraft('') } }}
+                    disabled={!draft.trim()}
+                    className={`flex-shrink-0 w-9 h-9 flex items-center justify-center ${buttonBgClass} hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-colors`}
+                    title="Send"
+                  >
+                    <Send size={16} />
                   </button>
                 </div>
               </div>

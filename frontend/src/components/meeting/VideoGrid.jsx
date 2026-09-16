@@ -1,7 +1,24 @@
 import { useRef, useEffect, useState } from 'react'
 import { Mic, MicOff, VideoOff, Monitor, Pin, Hand } from 'lucide-react'
 
-const VideoGrid = ({ 
+// Video tiles below attach streams via inline ref callbacks so they update
+// as soon as a tile mounts, not just on the next effect pass. Those inline
+// arrow functions get a new identity on every render (e.g. every keystroke
+// in chat), which makes React re-invoke the ref callback each time - so this
+// guard is what stops the camera visibly re-attaching/blinking on every
+// unrelated re-render: only touch the element when the stream actually
+// changed, and only call play() when it isn't already playing.
+const attachStream = (el, stream) => {
+  if (!el || !stream) return
+  if (el.srcObject !== stream) {
+    el.srcObject = stream
+  }
+  if (el.paused) {
+    el.play().catch(() => {})
+  }
+}
+
+const VideoGrid = ({
   localStream,
   localStreamVersion = 0, // Add version for forcing re-render
   screenStream, 
@@ -42,16 +59,8 @@ const VideoGrid = ({
   )
 
   useEffect(() => {
-    if (localStream && localVideoRef.current) {
-      localVideoRef.current.srcObject = localStream
-      // Force play on mobile
-      localVideoRef.current.play().catch(e => console.log('[VideoGrid] ⚠️ Video play failed:', e))
-    }
-
-    if (screenStream && screenVideoRef.current) {
-      screenVideoRef.current.srcObject = screenStream
-      screenVideoRef.current.play().catch(e => console.log('[VideoGrid] Screen play failed:', e))
-    }
+    attachStream(localVideoRef.current, localStream)
+    attachStream(screenVideoRef.current, screenStream)
   }, [localStream, screenStream, localStreamVersion, viewMode]) // Add viewMode to re-attach stream when switching modes
 
   // Update main video ref when it changes. Several view modes share this one
@@ -64,17 +73,21 @@ const VideoGrid = ({
       ((viewMode === 'interview' || viewMode === 'webinar') && isMobile)
     if (usesMainVideo && mainVideoRef.current) {
       const streamToUse = mainVideo.stream
+      const el = mainVideoRef.current
       if (streamToUse) {
-        mainVideoRef.current.srcObject = streamToUse
+        const alreadyAttached = el.srcObject === streamToUse
         // Mobile browser compatibility
-        mainVideoRef.current.setAttribute('webkit-playsinline', '')
-        mainVideoRef.current.setAttribute('playsinline', '')
-        mainVideoRef.current.play().catch(e => {
-          console.log('[VideoGrid] ⚠️ Main video play failed, retrying:', e)
-          setTimeout(() => {
-            mainVideoRef.current?.play().catch(err => console.log('[VideoGrid] ❌ Main video retry failed:', err))
-          }, 100)
-        })
+        el.setAttribute('webkit-playsinline', '')
+        el.setAttribute('playsinline', '')
+        if (!alreadyAttached) {
+          el.srcObject = streamToUse
+          el.play().catch(e => {
+            console.log('[VideoGrid] ⚠️ Main video play failed, retrying:', e)
+            setTimeout(() => {
+              mainVideoRef.current?.play().catch(err => console.log('[VideoGrid] ❌ Main video retry failed:', err))
+            }, 100)
+          })
+        }
       }
     }
   }, [viewMode, isMobile, mainVideo.stream, mainVideo.isYou, mainVideo.socketId, localStreamVersion, videoEnabled])
@@ -492,12 +505,7 @@ const VideoGrid = ({
                         playsInline
                         className={`w-full h-full ${isScreen ? 'object-contain' : 'object-cover'} ${!isScreen && video.isYou && settings.mirrorLocalVideo ? 'scale-x-[-1]' : ''}`}
                         style={{ display: (isScreen || video.videoEnabled) ? 'block' : 'none' }}
-                        ref={el => {
-                          if (el && video.stream) {
-                            el.srcObject = video.stream
-                            el.play().catch(e => console.log('Video play failed:', e))
-                          }
-                        }}
+                        ref={el => attachStream(el, video.stream)}
                       />
                       {!isScreen && !video.videoEnabled && (
                         <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
@@ -625,7 +633,7 @@ const VideoGrid = ({
                 muted
                 playsInline
                 className={`w-full h-full object-cover ${settings.mirrorLocalVideo ? 'scale-x-[-1]' : ''}`}
-                ref={el => { if (el && localStream) { el.srcObject = localStream; el.play().catch(e => console.log('[VideoGrid] Spotlight self-view play failed:', e)) } }}
+                ref={el => attachStream(el, localStream)}
               />
             ) : (
               <div className="w-full h-full bg-gray-700 flex items-center justify-center">
@@ -776,7 +784,7 @@ const VideoGrid = ({
                         className={`flex-shrink-0 ${isMobile ? 'w-32 h-24' : 'w-40 h-28'} bg-gray-800 rounded-lg overflow-hidden relative cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all`}
                         onClick={() => handlePin({ type: 'remote-screen', stream: screenStream, name: participant.name, socketId: participant.socketId, isHost: participant.isHost })}
                       >
-                        <video autoPlay playsInline className="w-full h-full object-contain bg-black" ref={el => { if (el && screenStream) el.srcObject = screenStream }} />
+                        <video autoPlay playsInline className="w-full h-full object-contain bg-black" ref={el => attachStream(el, screenStream)} />
                         {settings.showParticipantNames && (
                           <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1 flex items-center gap-1">
                             <Monitor size={12} className="text-blue-400" />
@@ -800,12 +808,10 @@ const VideoGrid = ({
                           playsInline
                           className={`w-full h-full object-cover bg-black ${settings.mirrorLocalVideo ? 'scale-x-[-1]' : ''}`}
                           ref={el => {
-                            if (el && localStream) {
-                              el.srcObject = localStream
-                              el.setAttribute('webkit-playsinline', '')
-                              el.setAttribute('playsinline', '')
-                              el.play().catch(e => console.log('[VideoGrid] Local thumbnail play failed:', e))
-                            }
+                            if (!el) return
+                            el.setAttribute('webkit-playsinline', '')
+                            el.setAttribute('playsinline', '')
+                            attachStream(el, localStream)
                           }}
                         />
                       ) : (
@@ -845,14 +851,12 @@ const VideoGrid = ({
                             autoPlay 
                             playsInline 
                             className="w-full h-full object-cover bg-black" 
-                            ref={el => { 
-                              if (el && stream) {
-                                el.srcObject = stream
-                                el.setAttribute('webkit-playsinline', '')
-                                el.setAttribute('playsinline', '')
-                                el.play().catch(e => console.log('[VideoGrid] Remote thumbnail play failed:', e))
-                              }
-                            }} 
+                            ref={el => {
+                              if (!el) return
+                              el.setAttribute('webkit-playsinline', '')
+                              el.setAttribute('playsinline', '')
+                              attachStream(el, stream)
+                            }}
                           />
                         ) : (
                           <div className="w-full h-full bg-gray-700 flex items-center justify-center">
@@ -913,22 +917,25 @@ const VideoTile = ({ participant, isHost: isTileHost, isCoHost, isMainHost, sett
   const videoRef = useRef()
 
   useEffect(() => {
-    if (videoRef.current && participant.stream) {
-      videoRef.current.srcObject = participant.stream
-      videoRef.current.play().catch(e => console.log('[VideoTile] Play failed:', e))
-    }
+    attachStream(videoRef.current, participant.stream)
   }, [participant.stream, participant.streamVersion])
 
-  // Calculate size based on role and total count
+  // Sized off the panel's height, not a fixed width percentage - the host/
+  // co-host row lives in a fixed-height band (see the h-[32%] panel above),
+  // and a width-only size class paired with aspect-video ignored that
+  // entirely, so a wide-but-short window (or just few enough people that
+  // there's lots of spare horizontal room) blew the tile way past its own
+  // box both upward and downward. Deriving width from height instead keeps
+  // it inside the band; max-w-[*] just stops one lone participant from
+  // stretching edge to edge.
   const getSizeClass = () => {
     if (isMainHost) {
-      // Main host - larger and centered
-      return 'w-[40%]'
+      return 'h-full max-w-[46%]'
     } else if (isTileHost || isCoHost) {
-      // Co-hosts - medium size
-      return 'w-[28%]'
+      return 'h-full max-w-[32%]'
     } else {
-      // Candidates - standard size
+      // Candidates grid - each tile already lives in its own grid cell, so
+      // width-driven sizing is correct here.
       return 'w-full'
     }
   }
