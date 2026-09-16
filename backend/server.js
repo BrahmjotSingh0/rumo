@@ -35,7 +35,13 @@ const io = socketIo(server, {
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: false, // Disable for development
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  // Uploaded logos/backgrounds under /uploads are public brand assets meant
+  // to be loaded by the frontend, which is commonly on a different origin
+  // (different port in dev, a different subdomain in some deployments).
+  // Helmet's same-origin default blocks exactly that via the browser's
+  // Cross-Origin-Resource-Policy check, independent of the CORS headers below.
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
 // Compression middleware

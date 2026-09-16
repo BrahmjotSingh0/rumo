@@ -64,6 +64,9 @@ const MeetingPro = () => {
   const [userRole, setUserRole] = useState(null) // 'co-host' or null
   const [joinRequests, setJoinRequests] = useState([]) // Waiting participants
   const [isWaiting, setIsWaiting] = useState(false) // Am I waiting for approval?
+  const [allowParticipantScreenShare, setAllowParticipantScreenShare] = useState(true)
+  const [allowSelfUnmute, setAllowSelfUnmute] = useState(true)
+  const [handRaised, setHandRaised] = useState(false) // My own raised-hand state
 
   // Media states - use preferences from sessionStorage
   const [audioEnabled, setAudioEnabled] = useState(mediaPreferences.audio !== false)
@@ -207,8 +210,8 @@ const MeetingPro = () => {
         originalVideoTrackRef.current = videoTrack.clone()
       }
       
-      // Apply background blur if enabled
-      if (settings.backgroundBlur && videoTrack) {
+      // Apply background blur/replacement if enabled
+      if ((settings.backgroundBlur || settings.backgroundImage) && videoTrack) {
         try {
           // Create video element for blur processor
           const videoElement = document.createElement('video')
@@ -220,7 +223,7 @@ const MeetingPro = () => {
           // Try BackgroundBlurProcessor first (with person segmentation)
           try {
             if (!blurProcessorRef.current) {
-              blurProcessorRef.current = new BackgroundBlurProcessor(15)
+              blurProcessorRef.current = new BackgroundBlurProcessor(15, settings.backgroundImage)
               await blurProcessorRef.current.init()
               toast.success('Background blur with person detection enabled')
             }
@@ -230,7 +233,7 @@ const MeetingPro = () => {
             if (blurProcessorRef.current) {
               blurProcessorRef.current.stop()
             }
-            blurProcessorRef.current = new SimpleBackgroundBlurProcessor(15)
+            blurProcessorRef.current = new SimpleBackgroundBlurProcessor(15, settings.backgroundImage)
             toast.success('Background blur enabled (simple mode)')
           }
           
@@ -279,7 +282,7 @@ const MeetingPro = () => {
         return null
       }
     }
-  }, [facingMode, settings.backgroundBlur, settings.videoQuality, settings.noiseSuppression, getConstraints])
+  }, [facingMode, settings.backgroundBlur, settings.backgroundImage, settings.videoQuality, settings.noiseSuppression, getConstraints])
 
   // Socket connection and event handlers - wait for room info
   useEffect(() => {
@@ -743,6 +746,38 @@ const MeetingPro = () => {
           setVideoEnabled(false)
           if (localStream) localStream.getVideoTracks().forEach(track => track.enabled = false)
         }
+        if (settings.allowParticipantScreenShare !== undefined) {
+          setAllowParticipantScreenShare(settings.allowParticipantScreenShare)
+        }
+        if (settings.allowSelfUnmute !== undefined) {
+          setAllowSelfUnmute(settings.allowSelfUnmute)
+        }
+      })
+
+      currentSocket.on('participant-screenshare-permission-changed', ({ enabled }) => {
+        if (!mounted) return
+        setAllowParticipantScreenShare(enabled)
+      })
+
+      currentSocket.on('self-unmute-permission-changed', ({ enabled }) => {
+        if (!mounted) return
+        setAllowSelfUnmute(enabled)
+      })
+
+      currentSocket.on('hand-raised', ({ socketId, userName }) => {
+        if (!mounted) return
+        setParticipants(prev => prev.map(p => p.socketId === socketId ? { ...p, handRaised: true } : p))
+        toast(`✋ ${userName} raised their hand`, { duration: 3000 })
+      })
+
+      currentSocket.on('hand-lowered', ({ socketId }) => {
+        if (!mounted) return
+        setParticipants(prev => prev.map(p => p.socketId === socketId ? { ...p, handRaised: false } : p))
+      })
+
+      currentSocket.on('reaction-received', ({ userName, emoji }) => {
+        if (!mounted) return
+        toast(`${emoji} ${userName}`, { duration: 2500 })
       })
 
       // Authoritative host status for this tab - there's no account system,
@@ -1095,6 +1130,12 @@ const MeetingPro = () => {
   const toggleAudio = () => {
     if (localStream) {
       const enabled = !audioEnabled
+
+      if (enabled && !allowSelfUnmute && !isHost && userRole !== 'co-host') {
+        toast.error('The host has disabled self-unmute')
+        return
+      }
+
       console.log(`[toggleAudio] Toggling audio from ${audioEnabled} to ${enabled}`)
       console.log('[toggleAudio] Current stream tracks:', {
         audio: localStream.getAudioTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled })),
@@ -1193,9 +1234,9 @@ const MeetingPro = () => {
       }
       originalVideoTrackRef.current = newVideoTrack.clone()
       
-      // Apply background blur if enabled
+      // Apply background blur/replacement if enabled
       let finalVideoTrack = newVideoTrack
-      if (settings.backgroundBlur && blurProcessorRef.current) {
+      if ((settings.backgroundBlur || settings.backgroundImage) && blurProcessorRef.current) {
         try {
           addDebugLog('Applying background blur...', 'info')
           console.log('[FlipCamera] Applying background blur to new camera')
@@ -1558,6 +1599,18 @@ const MeetingPro = () => {
     })
   }
 
+  const toggleHand = () => {
+    if (!socket) return
+    const next = !handRaised
+    setHandRaised(next)
+    socket.emit(next ? 'raise-hand' : 'lower-hand', { roomId })
+  }
+
+  const sendReaction = (emoji) => {
+    if (!socket) return
+    socket.emit('send-reaction', { roomId, emoji })
+  }
+
   const handleApproveJoin = (targetSocketId) => {
     if (socket) {
       socket.emit('approve-join', { targetSocketId })
@@ -1629,11 +1682,14 @@ const MeetingPro = () => {
       noiseSuppressorRef.current = null
     }
     
-    // Reset background blur setting
+    // Reset background blur/image settings - neither should carry into the next meeting
     if (settings.backgroundBlur) {
       updateSetting('backgroundBlur', false)
     }
-    
+    if (settings.backgroundImage) {
+      updateSetting('backgroundImage', null)
+    }
+
     // Release wake lock
     if (wakeLock) {
       wakeLock.release()
@@ -1821,24 +1877,24 @@ const MeetingPro = () => {
         }
         originalVideoTrackRef.current = newVideoTrack.clone()
         
-        // Apply blur if enabled
+        // Apply blur/replacement if enabled
         let finalVideoTrack = newVideoTrack
-        if (settings.backgroundBlur) {
+        if (settings.backgroundBlur || settings.backgroundImage) {
           try {
             const videoElement = document.createElement('video')
             videoElement.srcObject = new MediaStream([newVideoTrack])
             videoElement.autoplay = true
             videoElement.muted = true
             await videoElement.play()
-            
+
             // Use existing processor or create new one with person detection
             if (!blurProcessorRef.current) {
               try {
-                blurProcessorRef.current = new BackgroundBlurProcessor(15)
+                blurProcessorRef.current = new BackgroundBlurProcessor(15, settings.backgroundImage)
                 await blurProcessorRef.current.init()
               } catch (mlError) {
                 console.warn('ML-based blur failed, using simple blur')
-                blurProcessorRef.current = new SimpleBackgroundBlurProcessor(15)
+                blurProcessorRef.current = new SimpleBackgroundBlurProcessor(15, settings.backgroundImage)
               }
             }
             
@@ -1943,8 +1999,20 @@ const MeetingPro = () => {
       if (!currentVideoTrack) return
       
       try {
-        if (settings.backgroundBlur) {
-          // Enable blur
+        if (settings.backgroundBlur || settings.backgroundImage) {
+          // If a processor already exists but for a different background
+          // image (or for blur when an image is now wanted, or vice versa),
+          // tear it down first so it gets recreated below with the new one.
+          if (blurProcessorRef.current && blurProcessorRef.current.backgroundImageUrl !== (settings.backgroundImage || null)) {
+            try {
+              blurProcessorRef.current.stop()
+            } catch (e) {
+              console.error('Error stopping blur processor:', e)
+            }
+            blurProcessorRef.current = null
+          }
+
+          // Enable blur/replacement
           const videoElement = document.createElement('video')
           videoElement.srcObject = new MediaStream([originalVideoTrackRef.current || currentVideoTrack])
           videoElement.autoplay = true
@@ -1954,9 +2022,9 @@ const MeetingPro = () => {
           // Try BackgroundBlurProcessor first (with person segmentation)
           try {
             if (!blurProcessorRef.current) {
-              blurProcessorRef.current = new BackgroundBlurProcessor(15)
+              blurProcessorRef.current = new BackgroundBlurProcessor(15, settings.backgroundImage)
               await blurProcessorRef.current.init()
-              toast.success('Background blur with person detection enabled')
+              toast.success(settings.backgroundImage ? 'Virtual background enabled' : 'Background blur enabled')
             }
           } catch (mlError) {
             console.warn('ML-based blur failed, using simple blur:', mlError)
@@ -1968,8 +2036,8 @@ const MeetingPro = () => {
                 console.error('Error stopping blur processor:', e)
               }
             }
-            blurProcessorRef.current = new SimpleBackgroundBlurProcessor(15)
-            toast.success('Background blur enabled')
+            blurProcessorRef.current = new SimpleBackgroundBlurProcessor(15, settings.backgroundImage)
+            toast.success(settings.backgroundImage ? 'Virtual background enabled (simple mode)' : 'Background blur enabled (simple mode)')
           }
           
           const blurredStream = await blurProcessorRef.current.start(videoElement)
@@ -2035,18 +2103,21 @@ const MeetingPro = () => {
           
           // Stop the blurred track
           currentVideoTrack.stop()
-          
-          toast.success('Background blur disabled')
+
+          toast.success('Background effect disabled')
         }
       } catch (error) {
         console.error('Failed to toggle background blur:', error)
-        toast.error('Background blur failed, disabling...')
-        
-        // Auto-disable blur setting on error to prevent being stuck
+        toast.error('Background effect failed, disabling...')
+
+        // Auto-disable on error to prevent being stuck with a broken track
         if (settings.backgroundBlur) {
           updateSetting('backgroundBlur', false)
         }
-        
+        if (settings.backgroundImage) {
+          updateSetting('backgroundImage', null)
+        }
+
         // Clean up processor
         if (blurProcessorRef.current) {
           try {
@@ -2063,7 +2134,7 @@ const MeetingPro = () => {
     if (localStreamRef.current) {
       toggleBlur()
     }
-  }, [settings.backgroundBlur])
+  }, [settings.backgroundBlur, settings.backgroundImage])
 
   // Background functionality - Page Visibility API with audio maintenance
   useEffect(() => {
@@ -2533,12 +2604,15 @@ const MeetingPro = () => {
           showControls={showControls}
           toggleAudio={toggleAudio}
           toggleVideo={toggleVideo}
-          flipCamera={flipCamera}
+          canScreenShare={isHost || userRole === 'co-host' || allowParticipantScreenShare}
           toggleScreenShare={toggleScreenShare}
           stopScreenShare={stopScreenShare}
           copyInviteLink={copyInviteLink}
           setSettingsOpen={setSettingsOpen}
           leaveMeeting={leaveMeeting}
+          handRaised={handRaised}
+          onToggleHand={toggleHand}
+          onSendReaction={sendReaction}
           isMobile={isMobile}
           settings={settings}
         />

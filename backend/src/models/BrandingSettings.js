@@ -1,6 +1,7 @@
 const database = require('../config/database');
 
-const FIELDS = ['app_name', 'tagline', 'description', 'logo_icon', 'logo_full', 'primary_color'];
+const FIELDS = ['app_name', 'tagline', 'description', 'logo_icon', 'logo_full', 'primary_color', 'features', 'background_presets'];
+const JSON_FIELDS = ['features', 'background_presets'];
 
 class BrandingSettings {
   static async get() {
@@ -20,7 +21,9 @@ class BrandingSettings {
     const insertColumns = columns.map((col) => `"${col}"`).join(', ');
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
     const setClause = columns.map((col, i) => `"${col}" = $${i + 1}`).join(', ');
-    const values = columns.map((col) => fields[col]);
+    // jsonb columns need an actual JSON string, not the driver's default
+    // (and wrong) String(value) coercion of an object/array parameter.
+    const values = columns.map((col) => (JSON_FIELDS.includes(col) ? JSON.stringify(fields[col]) : fields[col]));
 
     const query = `
       INSERT INTO "branding_settings" ("id", ${insertColumns})

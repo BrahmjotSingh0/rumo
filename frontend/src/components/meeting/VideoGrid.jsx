@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
-import { Mic, MicOff, VideoOff, Monitor, Pin } from 'lucide-react'
+import { Mic, MicOff, VideoOff, Monitor, Pin, Hand } from 'lucide-react'
 
 const VideoGrid = ({ 
   localStream,
@@ -30,8 +30,16 @@ const VideoGrid = ({
 
   const [maxVisibleThumbnails, setMaxVisibleThumbnails] = useState(8)
 
-  // Determine what to show in main speaker view
-  const mainVideo = pinnedVideo || { type: 'local-camera', stream: localStream, name: userName, isYou: true, audioEnabled, videoEnabled, profilePicture: userProfilePicture }
+  // Determine what to show in main speaker view. If the viewer hid their own
+  // tile and nothing else is pinned, show the first remote participant
+  // instead - falling back to yourself only if you're the only one here.
+  const firstRemoteParticipant = participants[0]
+  const localVideoInfo = { type: 'local-camera', stream: localStream, name: userName, isYou: true, audioEnabled, videoEnabled, profilePicture: userProfilePicture }
+  const mainVideo = pinnedVideo || (
+    settings.hideSelfView && firstRemoteParticipant
+      ? { type: 'remote-camera', stream: remoteStreams.get(firstRemoteParticipant.socketId), ...firstRemoteParticipant }
+      : localVideoInfo
+  )
 
   useEffect(() => {
     
@@ -359,8 +367,10 @@ const VideoGrid = ({
       })
     })
     
-    // Add local camera
-    allVideos.push({ type: 'local-camera', stream: localStream, name: userName, isYou: true, audioEnabled, videoEnabled, profilePicture: userProfilePicture })
+    // Add local camera (unless the viewer chose to hide their own tile)
+    if (!settings.hideSelfView) {
+      allVideos.push({ type: 'local-camera', stream: localStream, name: userName, isYou: true, audioEnabled, videoEnabled, profilePicture: userProfilePicture })
+    }
     
     // Add remote cameras
     participants.forEach(participant => {
@@ -399,18 +409,18 @@ const VideoGrid = ({
                   {/* Video or Screen Share */}
                   {video.stream ? (
                     <>
-                      <video 
-                        autoPlay 
+                      <video
+                        autoPlay
                         muted={video.isYou}
-                        playsInline 
-                        className={`w-full h-full ${isScreen ? 'object-contain' : 'object-cover'}`}
+                        playsInline
+                        className={`w-full h-full ${isScreen ? 'object-contain' : 'object-cover'} ${!isScreen && video.isYou && settings.mirrorLocalVideo ? 'scale-x-[-1]' : ''}`}
                         style={{ display: (isScreen || video.videoEnabled) ? 'block' : 'none' }}
-                        ref={el => { 
+                        ref={el => {
                           if (el && video.stream) {
                             el.srcObject = video.stream
                             el.play().catch(e => console.log('Video play failed:', e))
                           }
-                        }} 
+                        }}
                       />
                       {!isScreen && !video.videoEnabled && (
                         <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
@@ -448,6 +458,7 @@ const VideoGrid = ({
                       {isScreen && <Monitor size={14} className="text-blue-400" />}
                       {video.name} {video.isYou && '(You)'} {isScreen && '- Screen'}
                       {video.isHost && <span className="text-blue-400 text-xs">(Host)</span>}
+                      {!isScreen && video.handRaised && <Hand size={14} className="text-yellow-400" />}
                       {!isScreen && !video.audioEnabled && <MicOff size={14} className="text-red-400" />}
                       {!isScreen && !video.videoEnabled && <VideoOff size={14} className="text-red-400" />}
                     </div>
@@ -481,13 +492,13 @@ const VideoGrid = ({
           <video ref={mainVideoRef} autoPlay muted={mainVideo.isYou} playsInline className="w-full h-full object-contain bg-black" />
         ) : (
           <>
-            <video 
+            <video
               key={mainVideo.isYou ? `main-video-${localStreamVersion}` : `main-video-${mainVideo.socketId}`}
-              ref={mainVideoRef} 
-              autoPlay 
-              muted={mainVideo.isYou} 
-              playsInline 
-              className="w-full h-full object-contain bg-black" 
+              ref={mainVideoRef}
+              autoPlay
+              muted={mainVideo.isYou}
+              playsInline
+              className={`w-full h-full object-contain bg-black ${mainVideo.isYou && settings.mirrorLocalVideo ? 'scale-x-[-1]' : ''}`}
               style={{ display: mainVideo.videoEnabled ? 'block' : 'none' }}
             />
             {!mainVideo.videoEnabled && (
@@ -547,8 +558,8 @@ const VideoGrid = ({
           })
         })
         
-        // Collect Local Camera
-        if (pinnedVideo?.type !== 'local-camera') {
+        // Collect Local Camera (unless the viewer chose to hide their own tile)
+        if (pinnedVideo?.type !== 'local-camera' && !settings.hideSelfView) {
           allThumbnails.push({ id: 'local-camera', type: 'camera', element: 'local-camera' })
         }
         
@@ -619,12 +630,12 @@ const VideoGrid = ({
                       onClick={() => handlePin({ type: 'local-camera', stream: localStream, name: userName, isYou: true, audioEnabled, videoEnabled, profilePicture: userProfilePicture })}
                     >
                       {videoEnabled ? (
-                        <video 
+                        <video
                           key={`local-thumb-${localStreamVersion}`}
-                          autoPlay 
-                          muted 
-                          playsInline 
-                          className="w-full h-full object-cover bg-black" 
+                          autoPlay
+                          muted
+                          playsInline
+                          className={`w-full h-full object-cover bg-black ${settings.mirrorLocalVideo ? 'scale-x-[-1]' : ''}`}
                           ref={el => {
                             if (el && localStream) {
                               el.srcObject = localStream

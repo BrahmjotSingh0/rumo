@@ -10,9 +10,12 @@ const DEFAULT_SETTINGS = {
   videoQuality: 'auto',
   audioQuality: 'auto',
   backgroundBlur: false,
+  backgroundImage: null, // URL of a virtual background (preset or uploaded); overrides backgroundBlur when set
   noiseSuppression: true, // Enable by default
   compactMode: false,
-  backgroundOptimization: true // Enable background optimization by default
+  backgroundOptimization: true, // Enable background optimization by default
+  mirrorLocalVideo: true, // Flip your own preview horizontally (does not affect what others see)
+  hideSelfView: false // Hide your own tile from your own view
 }
 
 export const useSettings = () => {
@@ -20,9 +23,10 @@ export const useSettings = () => {
     const saved = localStorage.getItem('meeting-settings')
     const parsedSettings = saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS
     
-    // Always reset background blur on initialization (should not persist across meetings)
+    // Always reset background blur/image on initialization (should not persist across meetings)
     parsedSettings.backgroundBlur = false
-    
+    parsedSettings.backgroundImage = null
+
     return parsedSettings
   })
 

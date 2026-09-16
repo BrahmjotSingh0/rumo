@@ -1,4 +1,8 @@
-import { Mic, MicOff, Video, VideoOff, Monitor, Phone, Users, Settings, RefreshCw } from 'lucide-react'
+import { useState } from 'react'
+import { Mic, MicOff, Video, VideoOff, Monitor, Phone, Users, Settings, Hand, Smile } from 'lucide-react'
+import branding from '../../config/branding'
+
+const REACTION_EMOJI = ['👍', '👏', '❤️', '😂', '🎉', '👋']
 
 const MeetingControls = ({
   audioEnabled,
@@ -8,17 +12,22 @@ const MeetingControls = ({
   showControls,
   toggleAudio,
   toggleVideo,
-  flipCamera,
+  canScreenShare = true,
   toggleScreenShare,
   stopScreenShare,
   copyInviteLink,
   setSettingsOpen,
   leaveMeeting,
+  handRaised = false,
+  onToggleHand,
+  onSendReaction,
   isMobile,
   settings
 }) => {
+  const [showReactions, setShowReactions] = useState(false)
   const isLight = settings?.theme === 'light'
-  
+  const { features } = branding
+
   const controlBg = isLight 
     ? 'bg-white/90 backdrop-blur-xl border-gray-200' 
     : 'bg-gray-900/80 backdrop-blur-xl border-gray-800/50'
@@ -76,33 +85,78 @@ const MeetingControls = ({
           </button>
         )} */}
         
-        <div className="relative screen-share-container">
+        {features.screenShare && (
+          <div className="relative screen-share-container">
+            <button
+              onClick={canScreenShare ? toggleScreenShare : undefined}
+              disabled={!canScreenShare}
+              className={`${isMobile ? 'w-14 h-14' : 'w-12 h-12 md:w-14 md:h-14'} rounded-full md:rounded-xl transition-all duration-200 flex items-center justify-center group relative overflow-hidden ${
+                !canScreenShare ? 'opacity-40 cursor-not-allowed' : ''
+              } ${
+                screenSharing
+                  ? 'bg-blue-500/90 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 active:scale-95'
+                  : `${buttonBg} shadow-lg hover:shadow-xl active:scale-95`
+              }`}
+              title={!canScreenShare ? 'Screen sharing has been disabled by the host' : screenSharing ? 'Screen share options' : 'Share screen'}
+            >
+              {!isMobile && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />}
+              <Monitor size={isMobile ? 22 : 18} />
+            </button>
+
+            {showScreenShareDropdown && (
+              <div className={`absolute ${isMobile ? 'bottom-full mb-2' : 'bottom-full mb-3'} left-1/2 transform -translate-x-1/2 ${dropdownBg} rounded-xl shadow-2xl border py-2 min-w-[140px] animate-in slide-in-from-bottom-2`}>
+                <button
+                  onClick={stopScreenShare}
+                  className={`w-full px-4 py-3 text-left text-sm ${dropdownText} ${dropdownHover} flex items-center gap-3 transition-colors active:${dropdownHover}`}
+                >
+                  <Monitor size={16} />
+                  Stop sharing
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {features.raiseHand && (
           <button
-            onClick={toggleScreenShare}
+            onClick={onToggleHand}
             className={`${isMobile ? 'w-14 h-14' : 'w-12 h-12 md:w-14 md:h-14'} rounded-full md:rounded-xl transition-all duration-200 flex items-center justify-center group relative overflow-hidden ${
-              screenSharing 
-                ? 'bg-blue-500/90 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 active:scale-95' 
+              handRaised
+                ? 'bg-yellow-500/90 hover:bg-yellow-600 text-white shadow-lg shadow-yellow-500/25 active:scale-95'
                 : `${buttonBg} shadow-lg hover:shadow-xl active:scale-95`
             }`}
-            title={screenSharing ? 'Screen share options' : 'Share screen'}
+            title={handRaised ? 'Lower hand' : 'Raise hand'}
           >
-            {!isMobile && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />}
-            <Monitor size={isMobile ? 22 : 18} />
+            <Hand size={isMobile ? 22 : 18} />
           </button>
-          
-          {showScreenShareDropdown && (
-            <div className={`absolute ${isMobile ? 'bottom-full mb-2' : 'bottom-full mb-3'} left-1/2 transform -translate-x-1/2 ${dropdownBg} rounded-xl shadow-2xl border py-2 min-w-[140px] animate-in slide-in-from-bottom-2`}>
-              <button
-                onClick={stopScreenShare}
-                className={`w-full px-4 py-3 text-left text-sm ${dropdownText} ${dropdownHover} flex items-center gap-3 transition-colors active:${dropdownHover}`}
-              >
-                <Monitor size={16} />
-                Stop sharing
-              </button>
-            </div>
-          )}
-        </div>
-        
+        )}
+
+        {features.reactions && (
+          <div className="relative">
+            <button
+              onClick={() => setShowReactions((v) => !v)}
+              className={`${isMobile ? 'w-14 h-14' : 'w-12 h-12 md:w-14 md:h-14'} rounded-full md:rounded-xl ${buttonBg} transition-all duration-200 flex items-center justify-center group relative overflow-hidden shadow-lg hover:shadow-xl active:scale-95`}
+              title="Send a reaction"
+            >
+              <Smile size={isMobile ? 22 : 18} />
+            </button>
+
+            {showReactions && (
+              <div className={`absolute ${isMobile ? 'bottom-full mb-2' : 'bottom-full mb-3'} left-1/2 transform -translate-x-1/2 ${dropdownBg} rounded-xl shadow-2xl border p-2 flex gap-1`}>
+                {REACTION_EMOJI.map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => { onSendReaction?.(emoji); setShowReactions(false) }}
+                    className={`text-xl w-9 h-9 flex items-center justify-center rounded-lg ${dropdownHover} transition-colors`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <button
           onClick={copyInviteLink}
           className={`${isMobile ? 'w-14 h-14' : 'w-12 h-12 md:w-14 md:h-14'} rounded-full md:rounded-xl ${buttonBg} transition-all duration-200 flex items-center justify-center group relative overflow-hidden shadow-lg hover:shadow-xl active:scale-95`}

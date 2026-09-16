@@ -7,34 +7,38 @@ const { body, validationResult } = require('express-validator');
 const BrandingSettings = require('../models/BrandingSettings');
 const config = require('../config/environment');
 const logger = require('../utils/logger');
+const { FEATURE_DEFAULTS, withFeatureDefaults } = require('../config/features');
 
 const router = express.Router();
 
-const ALLOWED_LOGO_TYPES = {
+const ALLOWED_IMAGE_TYPES = {
   'image/svg+xml': '.svg',
   'image/png': '.png',
   'image/jpeg': '.jpg',
   'image/webp': '.webp'
 };
 
-const uploadDir = path.join(config.upload.uploadPath, 'branding');
-fs.mkdirSync(uploadDir, { recursive: true });
+const logoUploadDir = path.join(config.upload.uploadPath, 'branding');
+const backgroundUploadDir = path.join(config.upload.uploadPath, 'backgrounds');
+fs.mkdirSync(logoUploadDir, { recursive: true });
+fs.mkdirSync(backgroundUploadDir, { recursive: true });
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const ext = ALLOWED_LOGO_TYPES[file.mimetype] || '';
-    cb(null, `${crypto.randomUUID()}${ext}`);
-  }
-});
+function makeUpload(destination, maxFileSize) {
+  return multer({
+    storage: multer.diskStorage({
+      destination: (req, file, cb) => cb(null, destination),
+      filename: (req, file, cb) => {
+        const ext = ALLOWED_IMAGE_TYPES[file.mimetype] || '';
+        cb(null, `${crypto.randomUUID()}${ext}`);
+      }
+    }),
+    limits: { fileSize: maxFileSize },
+    fileFilter: (req, file, cb) => cb(null, Boolean(ALLOWED_IMAGE_TYPES[file.mimetype]))
+  });
+}
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 2 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    cb(null, Boolean(ALLOWED_LOGO_TYPES[file.mimetype]));
-  }
-});
+const uploadLogo = makeUpload(logoUploadDir, 2 * 1024 * 1024);
+const uploadBackground = makeUpload(backgroundUploadDir, 5 * 1024 * 1024);
 
 // Gates writes behind a shared secret set by whoever deployed this instance
 // (ADMIN_SETUP_TOKEN in the backend .env). There are no user accounts in
@@ -68,6 +72,8 @@ function serializeBranding(row) {
     logoIcon: row.logo_icon,
     logoFull: row.logo_full,
     primaryColor: row.primary_color,
+    features: withFeatureDefaults(row.features),
+    backgroundPresets: row.background_presets || [],
     updatedAt: row.updated_at
   };
 }
@@ -76,7 +82,7 @@ function serializeBranding(row) {
 router.get('/branding', async (req, res) => {
   try {
     const row = await BrandingSettings.get();
-    res.json(row ? serializeBranding(row) : { configured: false });
+    res.json(row ? serializeBranding(row) : { configured: false, features: FEATURE_DEFAULTS, backgroundPresets: [] });
   } catch (error) {
     logger.error('Error fetching branding settings:', error);
     res.status(500).json({ error: 'Failed to fetch branding settings' });
@@ -89,7 +95,8 @@ router.put('/branding', requireAdminToken, [
   body('description').optional({ nullable: true }).isLength({ max: 300 }).trim(),
   body('logoIcon').optional({ nullable: true }).isLength({ max: 500 }).trim(),
   body('logoFull').optional({ nullable: true }).isLength({ max: 500 }).trim(),
-  body('primaryColor').optional().matches(/^#[0-9a-fA-F]{6}$/).withMessage('primaryColor must be a hex color like #2E5BFF')
+  body('primaryColor').optional().matches(/^#[0-9a-fA-F]{6}$/).withMessage('primaryColor must be a hex color like #2E5BFF'),
+  body('features').optional().isObject().withMessage('features must be an object')
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -97,14 +104,30 @@ router.put('/branding', requireAdminToken, [
   }
 
   try {
-    const { appName, tagline, description, logoIcon, logoFull, primaryColor } = req.body;
+    const { appName, tagline, description, logoIcon, logoFull, primaryColor, features } = req.body;
+
+    let mergedFeatures;
+    if (features) {
+      // Merge onto whatever's already stored, so a partial update from the
+      // admin UI (only the flags that were flipped) doesn't wipe the rest.
+      const existing = await BrandingSettings.get();
+      const current = withFeatureDefaults(existing?.features);
+      mergedFeatures = { ...current };
+      for (const key of Object.keys(FEATURE_DEFAULTS)) {
+        if (typeof features[key] === 'boolean') {
+          mergedFeatures[key] = features[key];
+        }
+      }
+    }
+
     const row = await BrandingSettings.upsert({
       app_name: appName,
       tagline,
       description,
       logo_icon: logoIcon,
       logo_full: logoFull,
-      primary_color: primaryColor
+      primary_color: primaryColor,
+      features: mergedFeatures
     });
 
     logger.info('Branding settings updated');
@@ -116,7 +139,7 @@ router.put('/branding', requireAdminToken, [
 });
 
 router.post('/branding/logo', requireAdminToken, (req, res) => {
-  upload.single('logo')(req, res, (err) => {
+  uploadLogo.single('logo')(req, res, (err) => {
     if (err) {
       return res.status(400).json({ error: err.message });
     }
@@ -126,6 +149,61 @@ router.post('/branding/logo', requireAdminToken, (req, res) => {
 
     res.json({ url: `/uploads/branding/${req.file.filename}` });
   });
+});
+
+// Admin-managed default virtual backgrounds, offered to every participant
+// alongside whatever they upload for themselves in a given call.
+router.post('/branding/backgrounds', requireAdminToken, (req, res) => {
+  uploadBackground.single('background')(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded, or the file type is not one of: PNG, JPEG, WebP' });
+    }
+
+    try {
+      const existing = await BrandingSettings.get();
+      const presets = existing?.background_presets || [];
+      const entry = {
+        id: crypto.randomUUID(),
+        url: `/uploads/backgrounds/${req.file.filename}`,
+        name: (req.body.name || req.file.originalname || 'Background').slice(0, 60)
+      };
+
+      const row = await BrandingSettings.upsert({ background_presets: [...presets, entry] });
+      res.status(201).json({ backgroundPresets: row.background_presets });
+    } catch (error) {
+      logger.error('Error adding background preset:', error);
+      res.status(500).json({ error: 'Failed to add background' });
+    }
+  });
+});
+
+router.delete('/branding/backgrounds/:id', requireAdminToken, async (req, res) => {
+  try {
+    const existing = await BrandingSettings.get();
+    const presets = existing?.background_presets || [];
+    const target = presets.find((p) => p.id === req.params.id);
+
+    if (!target) {
+      return res.status(404).json({ error: 'Background not found' });
+    }
+
+    const remaining = presets.filter((p) => p.id !== req.params.id);
+    const row = await BrandingSettings.upsert({ background_presets: remaining });
+
+    const filePath = path.join(config.upload.uploadPath, target.url.replace(/^\/uploads\//, ''));
+    fs.unlink(filePath, () => {
+      // Best-effort - the DB record (the part that actually matters) is
+      // already gone even if the file happens to be missing/locked.
+    });
+
+    res.json({ backgroundPresets: row.background_presets });
+  } catch (error) {
+    logger.error('Error removing background preset:', error);
+    res.status(500).json({ error: 'Failed to remove background' });
+  }
 });
 
 module.exports = router;

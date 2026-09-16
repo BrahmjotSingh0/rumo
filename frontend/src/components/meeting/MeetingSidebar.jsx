@@ -1,8 +1,9 @@
-import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical, Hand } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import ParticipantContextMenu from './components/ParticipantContextMenu'
 import HostSettings from './components/HostSettings'
+import branding from '../../config/branding'
 
 const MeetingSidebar = ({
   sidebarOpen,
@@ -32,7 +33,12 @@ const MeetingSidebar = ({
     isPrivate: false,
     allMuted: false,
     allCamerasOff: false,
-    allScreenShareOff: false
+    allScreenShareOff: false,
+    isLocked: false,
+    allowSelfUnmute: true,
+    allowParticipantScreenShare: true,
+    coHostsCanManageParticipants: true,
+    coHostsCanChangeSettings: false
   })
 
   // Listen for room setting changes from backend
@@ -55,7 +61,12 @@ const MeetingSidebar = ({
         isPrivate: settings.isPrivate !== undefined ? settings.isPrivate : prev.isPrivate,
         allMuted: settings.allMuted !== undefined ? settings.allMuted : prev.allMuted,
         allCamerasOff: settings.allCamerasOff !== undefined ? settings.allCamerasOff : prev.allCamerasOff,
-        allScreenShareOff: settings.allScreenSharesOff !== undefined ? settings.allScreenSharesOff : prev.allScreenShareOff
+        allScreenShareOff: settings.allScreenSharesOff !== undefined ? settings.allScreenSharesOff : prev.allScreenShareOff,
+        isLocked: settings.isLocked !== undefined ? settings.isLocked : prev.isLocked,
+        allowSelfUnmute: settings.allowSelfUnmute !== undefined ? settings.allowSelfUnmute : prev.allowSelfUnmute,
+        allowParticipantScreenShare: settings.allowParticipantScreenShare !== undefined ? settings.allowParticipantScreenShare : prev.allowParticipantScreenShare,
+        coHostsCanManageParticipants: settings.coHostsCanManageParticipants !== undefined ? settings.coHostsCanManageParticipants : prev.coHostsCanManageParticipants,
+        coHostsCanChangeSettings: settings.coHostsCanChangeSettings !== undefined ? settings.coHostsCanChangeSettings : prev.coHostsCanChangeSettings
       }))
     }
 
@@ -71,12 +82,32 @@ const MeetingSidebar = ({
       setRoomSettings(prev => ({ ...prev, allScreenShareOff: enabled }))
     }
 
+    const handleMeetingLockChanged = ({ locked }) => {
+      setRoomSettings(prev => ({ ...prev, isLocked: locked }))
+    }
+
+    const handleSelfUnmutePermissionChanged = ({ enabled }) => {
+      setRoomSettings(prev => ({ ...prev, allowSelfUnmute: enabled }))
+    }
+
+    const handleParticipantScreenSharePermissionChanged = ({ enabled }) => {
+      setRoomSettings(prev => ({ ...prev, allowParticipantScreenShare: enabled }))
+    }
+
+    const handleCoHostPermissionsChanged = ({ coHostsCanManageParticipants, coHostsCanChangeSettings }) => {
+      setRoomSettings(prev => ({ ...prev, coHostsCanManageParticipants, coHostsCanChangeSettings }))
+    }
+
     socket.on('chat-status-changed', handleChatStatusChanged)
     socket.on('room-type-changed', handleRoomTypeChanged)
     socket.on('room-settings', handleRoomSettings)
     socket.on('all-participants-muted', handleAllParticipantsMuted)
     socket.on('all-cameras-disabled', handleAllCamerasDisabled)
     socket.on('all-screenshares-disabled', handleAllScreenSharesDisabled)
+    socket.on('meeting-lock-changed', handleMeetingLockChanged)
+    socket.on('self-unmute-permission-changed', handleSelfUnmutePermissionChanged)
+    socket.on('participant-screenshare-permission-changed', handleParticipantScreenSharePermissionChanged)
+    socket.on('co-host-permissions-changed', handleCoHostPermissionsChanged)
 
     return () => {
       socket.off('chat-status-changed', handleChatStatusChanged)
@@ -85,14 +116,22 @@ const MeetingSidebar = ({
       socket.off('all-participants-muted', handleAllParticipantsMuted)
       socket.off('all-cameras-disabled', handleAllCamerasDisabled)
       socket.off('all-screenshares-disabled', handleAllScreenSharesDisabled)
+      socket.off('meeting-lock-changed', handleMeetingLockChanged)
+      socket.off('self-unmute-permission-changed', handleSelfUnmutePermissionChanged)
+      socket.off('participant-screenshare-permission-changed', handleParticipantScreenSharePermissionChanged)
+      socket.off('co-host-permissions-changed', handleCoHostPermissionsChanged)
     }
   }, [socket])
+
+  // Host always sees this; co-host only if the host has left participant
+  // management enabled for co-hosts (see roomSettings.coHostsCanManageParticipants).
+  const canOpenParticipantMenu = isHost || (userRole === 'co-host' && roomSettings.coHostsCanManageParticipants)
 
   const handleContextMenu = (e, participant) => {
     e.preventDefault()
     e.stopPropagation()
-    if (!isHost && userRole !== 'co-host') return // Only host/co-host can see context menu
-    
+    if (!canOpenParticipantMenu) return
+
     setContextMenu({
       participant,
       position: { x: e.clientX, y: e.clientY }
@@ -102,11 +141,11 @@ const MeetingSidebar = ({
   const handleThreeDotsClick = (e, participant) => {
     e.preventDefault()
     e.stopPropagation()
-    
+
     // Prevent double-click issues
     if (menuOpeningRef.current) return
-    
-    if (!isHost && userRole !== 'co-host') return
+
+    if (!canOpenParticipantMenu) return
     
     // If menu is already open for this participant, close it
     if (contextMenu?.participant?.socketId === participant.socketId) {
@@ -216,6 +255,37 @@ const MeetingSidebar = ({
     }
   }
 
+  const handleLockMeeting = () => {
+    if (socket) {
+      const newValue = !roomSettings.isLocked
+      socket.emit('lock-meeting', { roomId, locked: newValue })
+      setRoomSettings(prev => ({ ...prev, isLocked: newValue }))
+    }
+  }
+
+  const handleToggleSelfUnmute = () => {
+    if (socket) {
+      const newValue = !roomSettings.allowSelfUnmute
+      socket.emit('toggle-self-unmute', { roomId, enabled: newValue })
+      setRoomSettings(prev => ({ ...prev, allowSelfUnmute: newValue }))
+    }
+  }
+
+  const handleToggleParticipantScreenShare = () => {
+    if (socket) {
+      const newValue = !roomSettings.allowParticipantScreenShare
+      socket.emit('toggle-participant-screenshare', { roomId, enabled: newValue })
+      setRoomSettings(prev => ({ ...prev, allowParticipantScreenShare: newValue }))
+    }
+  }
+
+  const handleSetCoHostPermissions = (patch) => {
+    if (socket) {
+      socket.emit('set-cohost-permissions', { roomId, ...patch })
+      setRoomSettings(prev => ({ ...prev, ...patch }))
+    }
+  }
+
   if (!sidebarOpen) return null
 
   const isLight = settings?.theme === 'light'
@@ -260,17 +330,19 @@ const MeetingSidebar = ({
             <Users size={14} className="inline mr-2" />
             People ({participants.length + 1})
           </button>
-          <button
-            onClick={() => setActiveTab('chat')}
-            className={`flex-1 py-3 px-4 text-sm font-medium rounded-xl transition-all duration-200 ${
-              activeTab === 'chat' 
-                ? `${activeTabClass} shadow-lg` 
-                : inactiveTabClass
-            }`}
-          >
-            <MessageCircle size={14} className="inline mr-2" />
-            Chat
-          </button>
+          {branding.features.chat && (
+            <button
+              onClick={() => setActiveTab('chat')}
+              className={`flex-1 py-3 px-4 text-sm font-medium rounded-xl transition-all duration-200 ${
+                activeTab === 'chat'
+                  ? `${activeTabClass} shadow-lg`
+                  : inactiveTabClass
+              }`}
+            >
+              <MessageCircle size={14} className="inline mr-2" />
+              Chat
+            </button>
+          )}
         </div>
       </div>
 
@@ -278,15 +350,21 @@ const MeetingSidebar = ({
       <div className="flex-1 overflow-hidden">
         {activeTab === 'participants' ? (
           <div className="p-4 space-y-3 overflow-y-auto h-full">
-            {/* Host Settings - Show for host or co-host */}
-            {(isHost || userRole === 'co-host') && (
+            {/* Host Settings - host always, co-host only if the host has granted it */}
+            {(isHost || (userRole === 'co-host' && roomSettings.coHostsCanChangeSettings)) && (
               <HostSettings
                 roomSettings={roomSettings}
+                isHost={isHost}
                 onMuteAll={handleMuteAll}
                 onToggleChat={handleToggleChat}
                 onToggleRoomType={handleToggleRoomType}
                 onDisableAllCameras={handleDisableAllCameras}
                 onDisableAllScreenShares={handleDisableAllScreenShares}
+                onLockMeeting={handleLockMeeting}
+                onToggleSelfUnmute={handleToggleSelfUnmute}
+                onToggleParticipantScreenShare={handleToggleParticipantScreenShare}
+                onSetCoHostPermissions={handleSetCoHostPermissions}
+                features={branding.features}
                 settings={settings}
               />
             )}
@@ -321,7 +399,7 @@ const MeetingSidebar = ({
               return (
               <div 
                 key={participant.socketId} 
-                className={`flex items-center justify-between p-3 ${itemBgClass} rounded-lg ${(isHost || userRole === 'co-host') ? 'cursor-context-menu' : ''} transition-all hover:ring-2 hover:ring-blue-500/30`}
+                className={`flex items-center justify-between p-3 ${itemBgClass} rounded-lg ${canOpenParticipantMenu ? 'cursor-context-menu' : ''} transition-all hover:ring-2 hover:ring-blue-500/30`}
                 onContextMenu={(e) => handleContextMenu(e, participant)}
               >
                 <div className="flex items-center space-x-3 flex-1 min-w-0">
@@ -335,7 +413,10 @@ const MeetingSidebar = ({
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className={`${textClass} font-medium truncate`}>{participant.name}</p>
+                    <p className={`${textClass} font-medium truncate flex items-center gap-1.5`}>
+                      {participant.name}
+                      {participant.handRaised && <Hand size={14} className="text-yellow-500" />}
+                    </p>
                     {participant.isHost && <p className="text-blue-500 text-xs flex items-center gap-1"><Crown size={12} /> Host</p>}
                     {isCoHost && <p className="text-purple-500 text-xs flex items-center gap-1"><Shield size={12} /> Co-Host</p>}
                   </div>
@@ -345,7 +426,7 @@ const MeetingSidebar = ({
                     {participant.audioEnabled ? <Mic size={16} className="text-green-500" /> : <MicOff size={16} className="text-red-500" />}
                     {participant.videoEnabled ? <Video size={16} className="text-green-500" /> : <VideoOff size={16} className="text-red-500" />}
                   </div>
-                  {(isHost || userRole === 'co-host') && (
+                  {canOpenParticipantMenu && (
                     <button
                       onClick={(e) => handleThreeDotsClick(e, participant)}
                       className={`p-1.5 ${hoverClass} rounded-lg ${textSecondaryClass} hover:${textClass} transition-all`}

@@ -103,10 +103,12 @@ or, once something has been saved:
   "logoIcon": "/uploads/branding/....svg",
   "logoFull": "/uploads/branding/....svg",
   "primaryColor": "#2E5BFF",
+  "features": { "chat": true, "screenShare": true, "virtualBackgrounds": true, "coHost": true, "waitingRoom": true, "muteAll": true, "disableAllCameras": true, "disableAllScreenShares": true, "lockMeeting": true, "layoutSwitch": true, "raiseHand": true, "reactions": true },
+  "backgroundPresets": [{ "id": "uuid", "url": "/uploads/backgrounds/....jpg", "name": "Office" }],
   "updatedAt": "2026-01-01T00:00:00.000Z"
 }
 ```
-Fields are only present once set; the frontend falls back to `branding.json` / built-in defaults for anything missing.
+`appName`/`tagline`/etc are only present once set; the frontend falls back to `branding.json` / built-in defaults for anything missing. `features` and `backgroundPresets` are always present (with defaults) regardless of `configured`.
 
 ### `PUT /api/settings/branding`
 
@@ -121,6 +123,7 @@ Requires header `x-admin-token: <ADMIN_SETUP_TOKEN>`. Returns `403` if `ADMIN_SE
 | `logoIcon` | string | path, typically from the logo upload endpoint below |
 | `logoFull` | string | path, same as above |
 | `primaryColor` | string | hex color, e.g. `#2E5BFF` |
+| `features` | object | any subset of the keys shown in the `GET` response above; merged onto what's already stored, not replaced |
 
 **Response** `200`: same shape as the `GET` above.
 
@@ -133,6 +136,21 @@ Requires header `x-admin-token: <ADMIN_SETUP_TOKEN>`. Multipart form upload, fie
 { "url": "/uploads/branding/3f1c....svg" }
 ```
 Pass that `url` as `logoIcon` or `logoFull` in the `PUT` above to use it.
+
+### `POST /api/settings/branding/backgrounds`
+
+Requires header `x-admin-token: <ADMIN_SETUP_TOKEN>`. Multipart form upload, field name `background` (optional `name` field). Accepts PNG, JPEG, or WebP, up to 5MB. Adds the image to the shared virtual-background gallery every participant sees in their settings panel, alongside whatever they upload for themselves (which never leaves their browser).
+
+**Response** `201`
+```json
+{ "backgroundPresets": [{ "id": "uuid", "url": "/uploads/backgrounds/....jpg", "name": "Office" }] }
+```
+
+### `DELETE /api/settings/branding/backgrounds/:id`
+
+Requires header `x-admin-token: <ADMIN_SETUP_TOKEN>`. Removes that preset (and its file) from the shared gallery.
+
+**Response** `200`: `{ "backgroundPresets": [...] }` (the remaining list). `404` if that id doesn't exist.
 
 ---
 
@@ -208,23 +226,40 @@ On failure the sender gets back `webrtc-error: { type, error }`.
 
 ### Host controls
 
-All of these require the caller to be host (or co-host, where noted); otherwise the server replies with `error: { message }` and does nothing.
+Two permission tiers, both host-configurable per room (see `set-cohost-permissions` below):
 
-| Event (client → server) | Who | Payload | Effect |
+- **Manage participants** (`mute-participant`, `disable-video`, `stop-screenshare`, `kick-participant`): host always; co-host only if `coHostsCanManageParticipants` is on (**default on**).
+- **Change room settings** (`mute-all`, `toggle-chat`, `set-room-type`, `disable-all-cameras`, `disable-all-screenshares`, `lock-meeting`, `toggle-self-unmute`, `toggle-participant-screenshare`): host always; co-host only if `coHostsCanChangeSettings` is on (**default off**).
+
+Calls outside these rules get `error: { message }` back and are dropped.
+
+| Event (client → server) | Tier | Payload | Effect |
 |---|---|---|---|
-| `mute-participant` | host/co-host | `{ roomId, targetSocketId }` | target gets `force-mute`, room gets `user-audio-toggle` |
-| `disable-video` | host/co-host | `{ roomId, targetSocketId }` | target gets `force-video-off`, room gets `user-video-toggle` |
-| `stop-screenshare` | host/co-host | `{ roomId, targetSocketId }` | target gets `force-stop-screenshare`, room gets `user-screen-share` |
-| `kick-participant` | host/co-host | `{ roomId, targetSocketId }` | target gets `kicked-from-room` then is disconnected |
-| `mute-all` | host/co-host | `{ roomId, enabled }` | forces mute on everyone except host/co-hosts when `enabled: true`; room gets `all-participants-muted` |
-| `toggle-chat` | host/co-host | `{ roomId, enabled }` | room gets `chat-status-changed` |
-| `disable-all-cameras` | host/co-host | `{ roomId, enabled }` | room gets `all-cameras-disabled` |
-| `disable-all-screenshares` | host/co-host | `{ roomId, enabled }` | room gets `all-screenshares-disabled` |
+| `mute-participant` | manage participants | `{ roomId, targetSocketId }` | target gets `force-mute`, room gets `user-audio-toggle` |
+| `disable-video` | manage participants | `{ roomId, targetSocketId }` | target gets `force-video-off`, room gets `user-video-toggle` |
+| `stop-screenshare` | manage participants | `{ roomId, targetSocketId }` | target gets `force-stop-screenshare`, room gets `user-screen-share` |
+| `kick-participant` | manage participants | `{ roomId, targetSocketId }` | target gets `kicked-from-room` then is disconnected |
+| `mute-all` | room settings | `{ roomId, enabled }` | forces mute on everyone except host/co-hosts when `enabled: true`; room gets `all-participants-muted` |
+| `toggle-chat` | room settings | `{ roomId, enabled }` | room gets `chat-status-changed` |
+| `disable-all-cameras` | room settings | `{ roomId, enabled }` | room gets `all-cameras-disabled` |
+| `disable-all-screenshares` | room settings | `{ roomId, enabled }` | room gets `all-screenshares-disabled` |
+| `set-room-type` | room settings | `{ roomId, isPrivate }` | room gets `room-type-changed`; controls whether new joiners hit the waiting room |
+| `lock-meeting` | room settings | `{ roomId, locked }` | room gets `meeting-lock-changed`; when locked, `request-join`/`host-rejoin` are rejected outright for anyone new, no waiting room offered |
+| `toggle-self-unmute` | room settings | `{ roomId, enabled }` | room gets `self-unmute-permission-changed`; when off, a non-host/co-host's `toggle-audio: { enabled: true }` is rejected and they get `force-mute` back |
+| `toggle-participant-screenshare` | room settings | `{ roomId, enabled }` | room gets `participant-screenshare-permission-changed`; when off, a non-host/co-host's `toggle-screen-share: { enabled: true }` is rejected and they get `force-stop-screenshare` back |
 | `make-cohost` | host only | `{ roomId, targetSocketId }` | target gets `role-changed: { role: 'co-host' }`, room gets `participant-role-updated` |
 | `remove-cohost` | host only | `{ roomId, targetSocketId }` | same as above with `role: 'participant'` |
-| `set-room-type` | host only | `{ roomId, isPrivate }` | room gets `room-type-changed`; controls whether new joiners hit the waiting room |
+| `set-cohost-permissions` | host only | `{ roomId, canManageParticipants?, canChangeSettings? }` | room gets `co-host-permissions-changed: { coHostsCanManageParticipants, coHostsCanChangeSettings, by, timestamp }`. Host-only regardless of the room-settings tier above, so a co-host can never grant itself more power |
 
 Legacy/simpler variants (kept for compatibility, prefer the ones above): `mute-user` / `remove-user` (by `targetUserId`), `mute-all-users`.
+
+### Raise hand / reactions
+
+| Event (client → server) | Payload | Broadcast to room as |
+|---|---|---|
+| `raise-hand` | `{ roomId }` | `hand-raised: { socketId, userName, timestamp }` |
+| `lower-hand` | `{ roomId, targetSocketId? }` | `hand-lowered: { socketId, timestamp }`. Anyone can lower their own hand; lowering someone else's requires the "manage participants" tier above |
+| `send-reaction` | `{ roomId, emoji }` | `reaction-received: { socketId, userName, emoji, timestamp }`. `emoji` must be one of 👍 👏 ❤️ 😂 🎉 👋 - anything else is silently dropped |
 
 ### Quality monitoring
 

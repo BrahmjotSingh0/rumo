@@ -135,6 +135,14 @@ CREATE TABLE "branding_settings" (
     "logo_icon" VARCHAR(500),
     "logo_full" VARCHAR(500),
     "primary_color" VARCHAR(7),
+    -- { "chat": true, "screenShare": true, ... } - which optional features/host
+    -- controls are exposed in the UI at all. Missing keys default to enabled;
+    -- see backend/src/config/features.js for the full list and defaults.
+    "features" JSONB,
+    -- [{ "id": "uuid", "url": "/uploads/backgrounds/....jpg", "name": "Office" }]
+    -- admin-managed virtual background choices offered to every participant,
+    -- in addition to whatever they upload for themselves in a given call.
+    "background_presets" JSONB,
     "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "branding_settings_single_row" CHECK ("id" = 1)
 );

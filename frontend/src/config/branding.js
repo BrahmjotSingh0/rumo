@@ -11,6 +11,23 @@ import { API_BASE_URL } from '../utils/constants';
 export const DEFAULT_TAGLINE = 'Connect, collaborate, create.';
 export const DEFAULT_DESCRIPTION = 'Free, self-hosted video meetings.';
 
+// Mirrors backend/src/config/features.js - kept here too so the UI has a
+// sane fallback if the backend is unreachable when the app first loads.
+export const DEFAULT_FEATURES = {
+  chat: true,
+  screenShare: true,
+  virtualBackgrounds: true,
+  coHost: true,
+  waitingRoom: true,
+  muteAll: true,
+  disableAllCameras: true,
+  disableAllScreenShares: true,
+  lockMeeting: true,
+  layoutSwitch: true,
+  raiseHand: true,
+  reactions: true,
+};
+
 const branding = {
   appName: 'Rumo',
   tagline: DEFAULT_TAGLINE,
@@ -23,6 +40,12 @@ const branding = {
   logoFull: '/brand/logo.svg',
 
   primaryColor: '#2E5BFF',
+
+  // Which optional features/host controls the admin has left enabled, and
+  // the shared virtual-background gallery they've curated. Both come from
+  // the backend only (not branding.json) since they involve server state.
+  features: { ...DEFAULT_FEATURES },
+  backgroundPresets: [],
 };
 
 // Logos uploaded through the admin panel are served by the backend, so they
@@ -55,6 +78,14 @@ export async function loadBranding() {
         if (data.logoIcon) branding.logoIcon = resolveAssetUrl(data.logoIcon);
         if (data.logoFull) branding.logoFull = resolveAssetUrl(data.logoFull);
         if (data.primaryColor) branding.primaryColor = data.primaryColor;
+      }
+      // These come back with defaults applied regardless of `configured`.
+      if (data.features) branding.features = data.features;
+      if (data.backgroundPresets) {
+        branding.backgroundPresets = data.backgroundPresets.map((preset) => ({
+          ...preset,
+          url: resolveAssetUrl(preset.url),
+        }));
       }
     }
   } catch {

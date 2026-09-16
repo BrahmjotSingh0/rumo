@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Settings, X, Monitor, Palette, Layout, Volume2, Video, Eye, RotateCcw } from 'lucide-react'
+import { Settings, X, Monitor, Palette, Layout, Volume2, Video, Eye, RotateCcw, Upload, Ban } from 'lucide-react'
+import branding from '../../../config/branding'
 
 const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings }) => {
   const [activeTab, setActiveTab] = useState('appearance')
@@ -133,6 +134,40 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
                     }`} />
                   </button>
                 </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1">
+                    <label className={`text-sm font-medium ${textClass}`}>Mirror My Video</label>
+                    <p className={`text-xs ${textSecondaryClass} mt-0.5`}>Flip your own preview - doesn't change what others see</p>
+                  </div>
+                  <button
+                    onClick={() => updateSetting('mirrorLocalVideo', !settings.mirrorLocalVideo)}
+                    className={`relative w-12 h-6 rounded-full transition-all duration-200 flex-shrink-0 ${
+                      settings.mirrorLocalVideo ? 'bg-blue-600 shadow-lg shadow-blue-600/25' : isLight ? 'bg-gray-300' : 'bg-gray-600'
+                    }`}
+                  >
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-0.5 transition-transform duration-200 shadow-lg ${
+                      settings.mirrorLocalVideo ? 'translate-x-6' : 'translate-x-0.5'
+                    }`} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1">
+                    <label className={`text-sm font-medium ${textClass}`}>Hide Self View</label>
+                    <p className={`text-xs ${textSecondaryClass} mt-0.5`}>Hide your own tile from your own screen only</p>
+                  </div>
+                  <button
+                    onClick={() => updateSetting('hideSelfView', !settings.hideSelfView)}
+                    className={`relative w-12 h-6 rounded-full transition-all duration-200 flex-shrink-0 ${
+                      settings.hideSelfView ? 'bg-blue-600 shadow-lg shadow-blue-600/25' : isLight ? 'bg-gray-300' : 'bg-gray-600'
+                    }`}
+                  >
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-0.5 transition-transform duration-200 shadow-lg ${
+                      settings.hideSelfView ? 'translate-x-6' : 'translate-x-0.5'
+                    }`} />
+                  </button>
+                </div>
               </div>
             )}
 
@@ -152,22 +187,70 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
                   </select>
                 </div>
 
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex-1">
-                    <label className={`text-sm font-medium ${textClass}`}>Background Blur</label>
-                    <p className={`text-xs ${textSecondaryClass} mt-0.5`}>Blur background during video calls</p>
+                {branding.features.virtualBackgrounds && (
+                  <div>
+                    <label className={`block text-sm font-medium ${textClass} mb-3`}>Background</label>
+                    <div className="grid grid-cols-4 gap-2 sm:gap-3 mb-3">
+                      <button
+                        onClick={() => { updateSetting('backgroundBlur', false); updateSetting('backgroundImage', null) }}
+                        className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all duration-200 ${
+                          !settings.backgroundBlur && !settings.backgroundImage
+                            ? `border-blue-500 ${isLight ? 'bg-blue-50' : 'bg-blue-500/10'}`
+                            : `${inputBorderClass} ${hoverClass}`
+                        }`}
+                        title="No effect"
+                      >
+                        <Ban size={18} className={textSecondaryClass} />
+                        <span className={`text-[10px] ${textSecondaryClass}`}>None</span>
+                      </button>
+
+                      <button
+                        onClick={() => { updateSetting('backgroundBlur', true); updateSetting('backgroundImage', null) }}
+                        className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all duration-200 ${
+                          settings.backgroundBlur && !settings.backgroundImage
+                            ? `border-blue-500 ${isLight ? 'bg-blue-50' : 'bg-blue-500/10'}`
+                            : `${inputBorderClass} ${hoverClass}`
+                        }`}
+                        title="Blur"
+                      >
+                        <Eye size={18} className={textSecondaryClass} />
+                        <span className={`text-[10px] ${textSecondaryClass}`}>Blur</span>
+                      </button>
+
+                      {branding.backgroundPresets.map((preset) => (
+                        <button
+                          key={preset.id}
+                          onClick={() => updateSetting('backgroundImage', preset.url)}
+                          className={`aspect-square rounded-xl border-2 overflow-hidden transition-all duration-200 ${
+                            settings.backgroundImage === preset.url ? 'border-blue-500' : `${inputBorderClass} ${hoverClass}`
+                          }`}
+                          title={preset.name}
+                        >
+                          <img src={preset.url} alt={preset.name} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+
+                      <label
+                        className={`aspect-square rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 cursor-pointer transition-all duration-200 ${inputBorderClass} ${hoverClass}`}
+                        title="Upload your own (stays on your device only)"
+                      >
+                        <Upload size={18} className={textSecondaryClass} />
+                        <span className={`text-[10px] ${textSecondaryClass} text-center px-1`}>Upload</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) updateSetting('backgroundImage', URL.createObjectURL(file))
+                            e.target.value = ''
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <p className={`text-xs ${textSecondaryClass}`}>Your own upload stays in your browser for this call only - it's never sent anywhere.</p>
                   </div>
-                  <button
-                    onClick={() => updateSetting('backgroundBlur', !settings.backgroundBlur)}
-                    className={`relative w-12 h-6 rounded-full transition-all duration-200 flex-shrink-0 ${
-                      settings.backgroundBlur ? 'bg-blue-600 shadow-lg shadow-blue-600/25' : isLight ? 'bg-gray-300' : 'bg-gray-600'
-                    }`}
-                  >
-                    <div className={`absolute w-5 h-5 bg-white rounded-full top-0.5 transition-transform duration-200 shadow-lg ${
-                      settings.backgroundBlur ? 'translate-x-6' : 'translate-x-0.5'
-                    }`} />
-                  </button>
-                </div>
+                )}
               </div>
             )}
 

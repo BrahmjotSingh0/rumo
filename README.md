@@ -40,12 +40,14 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 
 ## Features
 
-- **Video/audio calls**: adaptive quality, screen sharing, background blur
+- **Video/audio calls**: adaptive quality, screen sharing, background blur and virtual backgrounds (upload your own or pick from an admin-managed gallery)
 - **Guest access**: enter a name and join, no account required. Whoever creates a room is its host
-- **Host controls**: mute/remove participants, co-hosts, waiting room for private rooms, host transfer
+- **Host controls**: mute/remove participants, co-hosts with configurable permissions, lock the meeting, waiting room for private rooms, host transfer
+- **Raise hand and emoji reactions**
 - **Real-time chat** with rate limiting
 - **Connection quality monitoring** and automatic reconnection
 - **Configurable branding**: change the name, logo, tagline, and accent color from an admin panel in the browser, or a JSON file - no rebuild required
+- **Feature flags**: turn off chat, screen sharing, co-hosts, or any other optional control for the whole instance from the admin panel
 - **Built-in i18n**: every UI string lives in one `lang.json`, add a language by adding a column
 - **One-command HTTPS**: point a domain at your server and the installer sets up a reverse proxy with automatic, auto-renewing certificates
 

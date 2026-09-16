@@ -19,6 +19,27 @@ class SocketService {
     });
   }
 
+  // Host always has full control. Co-host power over other participants
+  // (mute/disable-video/stop-share/kick) and over room-wide settings
+  // (mute-all/chat/lock/etc) are each independently toggleable by the host -
+  // see handleSetCoHostPermissions - and default to on/off respectively to
+  // match what most rooms want without the host having to configure anything.
+  canManageParticipants(user, roomId) {
+    if (!user) return false;
+    if (user.isHost) return true;
+    if (user.role !== 'co-host') return false;
+    const roomSettings = this.rooms.get(roomId) || {};
+    return roomSettings.coHostsCanManageParticipants !== false;
+  }
+
+  canChangeRoomSettings(user, roomId) {
+    if (!user) return false;
+    if (user.isHost) return true;
+    if (user.role !== 'co-host') return false;
+    const roomSettings = this.rooms.get(roomId) || {};
+    return roomSettings.coHostsCanChangeSettings === true;
+  }
+
   handleConnection(socket) {
     this.connectionStats.set(socket.id, {
       connectedAt: Date.now(),
@@ -64,7 +85,16 @@ class SocketService {
     socket.on('set-room-type', (data) => this.handleSetRoomType(socket, data));
     socket.on('disable-all-cameras', (data) => this.handleDisableAllCameras(socket, data));
     socket.on('disable-all-screenshares', (data) => this.handleDisableAllScreenShares(socket, data));
-    
+    socket.on('lock-meeting', (data) => this.handleLockMeeting(socket, data));
+    socket.on('toggle-self-unmute', (data) => this.handleToggleSelfUnmute(socket, data));
+    socket.on('toggle-participant-screenshare', (data) => this.handleToggleParticipantScreenShare(socket, data));
+    socket.on('set-cohost-permissions', (data) => this.handleSetCoHostPermissions(socket, data));
+
+    // Raise hand / reactions
+    socket.on('raise-hand', (data) => this.handleRaiseHand(socket, data));
+    socket.on('lower-hand', (data) => this.handleLowerHand(socket, data));
+    socket.on('send-reaction', (data) => this.handleSendReaction(socket, data));
+
     // Private room waiting room
     socket.on('request-join', (data) => this.handleJoinRequest(socket, data));
     socket.on('host-rejoin', (data) => this.handleHostRejoin(socket, data));
@@ -142,7 +172,12 @@ class SocketService {
           allMuted: false,
           allCamerasOff: false,
           allScreenSharesOff: false,
-          chatEnabled: true
+          chatEnabled: true,
+          isLocked: false,
+          allowSelfUnmute: true,
+          allowParticipantScreenShare: true,
+          coHostsCanManageParticipants: true,
+          coHostsCanChangeSettings: false
         });
       }
       const roomSettings = this.rooms.get(roomId);
@@ -189,6 +224,7 @@ class SocketService {
         audioEnabled: finalAudioEnabled,
         videoEnabled: finalVideoEnabled,
         screenSharing: false,
+        handRaised: false,
         joinedAt: new Date()
       };
       
@@ -214,7 +250,8 @@ class SocketService {
           isHost: p.is_host,
           audioEnabled: p.audio_enabled,
           videoEnabled: p.video_enabled,
-          screenSharing: p.screen_sharing
+          screenSharing: p.screen_sharing,
+          handRaised: userDataInMemory?.handRaised || false
         };
       });
 
@@ -325,15 +362,26 @@ class SocketService {
   async handleToggleAudio(socket, { roomId, enabled }) {
     try {
       const user = this.users.get(socket.id);
-      if (user) {
-        user.audioEnabled = enabled;
-        await Room.updateParticipantMedia(socket.id, { audioEnabled: enabled });
-        socket.to(roomId).emit('user-audio-toggle', { 
-          userId: user.id, 
-          socketId: socket.id,
-          enabled 
-        });
+      if (!user) return;
+
+      if (enabled && !this.canManageParticipants(user, roomId)) {
+        const roomSettings = this.rooms.get(roomId);
+        if (roomSettings?.allowSelfUnmute === false) {
+          this.io.to(socket.id).emit('force-mute', {
+            reason: 'self-unmute-disabled',
+            timestamp: Date.now()
+          });
+          return;
+        }
       }
+
+      user.audioEnabled = enabled;
+      await Room.updateParticipantMedia(socket.id, { audioEnabled: enabled });
+      socket.to(roomId).emit('user-audio-toggle', {
+        userId: user.id,
+        socketId: socket.id,
+        enabled
+      });
     } catch (error) {
       logger.error('Error toggling audio:', error);
     }
@@ -359,17 +407,28 @@ class SocketService {
   async handleToggleScreenShare(socket, { roomId, enabled, quality }) {
     try {
       const user = this.users.get(socket.id);
-      if (user) {
-        user.screenSharing = enabled;
-        await Room.updateParticipantMedia(socket.id, { screenSharing: enabled });
-        socket.to(roomId).emit('user-screen-share', {
-          userId: user.id,
-          socketId: socket.id,
-          enabled,
-          quality: quality || 'high',
-          timestamp: Date.now()
-        });
+      if (!user) return;
+
+      if (enabled && !this.canManageParticipants(user, roomId)) {
+        const roomSettings = this.rooms.get(roomId);
+        if (roomSettings?.allowParticipantScreenShare === false) {
+          this.io.to(socket.id).emit('force-stop-screenshare', {
+            reason: 'screenshare-disabled',
+            timestamp: Date.now()
+          });
+          return;
+        }
       }
+
+      user.screenSharing = enabled;
+      await Room.updateParticipantMedia(socket.id, { screenSharing: enabled });
+      socket.to(roomId).emit('user-screen-share', {
+        userId: user.id,
+        socketId: socket.id,
+        enabled,
+        quality: quality || 'high',
+        timestamp: Date.now()
+      });
     } catch (error) {
       logger.error('Error toggling screen share:', error);
     }
@@ -531,10 +590,9 @@ class SocketService {
   async handleMuteParticipant(socket, { roomId, targetSocketId }) {
     try {
       const host = this.users.get(socket.id);
-      
-      // Check if user is host or co-host
-      if (!host?.isHost && host?.role !== 'co-host') {
-        socket.emit('error', { message: 'Only host or co-host can mute participants' });
+
+      if (!this.canManageParticipants(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to mute participants' });
         return;
       }
 
@@ -570,8 +628,8 @@ class SocketService {
   async handleDisableVideo(socket, { roomId, targetSocketId }) {
     try {
       const host = this.users.get(socket.id);
-      if (!host?.isHost && host?.role !== 'co-host') {
-        socket.emit('error', { message: 'Only host or co-host can disable video' });
+      if (!this.canManageParticipants(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to disable video' });
         return;
       }
 
@@ -606,8 +664,8 @@ class SocketService {
   async handleStopScreenShare(socket, { roomId, targetSocketId }) {
     try {
       const host = this.users.get(socket.id);
-      if (!host?.isHost && host?.role !== 'co-host') {
-        socket.emit('error', { message: 'Only host or co-host can stop screen share' });
+      if (!this.canManageParticipants(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to stop screen share' });
         return;
       }
 
@@ -712,8 +770,8 @@ class SocketService {
   async handleKickParticipant(socket, { roomId, targetSocketId }) {
     try {
       const host = this.users.get(socket.id);
-      if (!host?.isHost && host?.role !== 'co-host') {
-        socket.emit('error', { message: 'Only host or co-host can kick participants' });
+      if (!this.canManageParticipants(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to remove participants' });
         return;
       }
 
@@ -742,8 +800,8 @@ class SocketService {
   async handleMuteAll(socket, { roomId, enabled }) {
     try {
       const host = this.users.get(socket.id);
-      if (!host?.isHost && host?.role !== 'co-host') {
-        socket.emit('error', { message: 'Only host or co-host can mute all' });
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to change room settings' });
         return;
       }
 
@@ -790,8 +848,8 @@ class SocketService {
   handleToggleChat(socket, { roomId, enabled }) {
     try {
       const host = this.users.get(socket.id);
-      if (!host?.isHost && host?.role !== 'co-host') {
-        socket.emit('error', { message: 'Only host or co-host can toggle chat' });
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to change room settings' });
         return;
       }
 
@@ -819,8 +877,8 @@ class SocketService {
   handleSetRoomType(socket, { roomId, isPrivate }) {
     try {
       const host = this.users.get(socket.id);
-      if (!host?.isHost) {
-        socket.emit('error', { message: 'Only host can change room type' });
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to change room settings' });
         return;
       }
 
@@ -848,8 +906,8 @@ class SocketService {
   async handleDisableAllCameras(socket, { roomId, enabled }) {
     try {
       const host = this.users.get(socket.id);
-      if (!host?.isHost && host?.role !== 'co-host') {
-        socket.emit('error', { message: 'Only host or co-host can disable all cameras' });
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to change room settings' });
         return;
       }
 
@@ -896,8 +954,8 @@ class SocketService {
   async handleDisableAllScreenShares(socket, { roomId, enabled }) {
     try {
       const host = this.users.get(socket.id);
-      if (!host?.isHost && host?.role !== 'co-host') {
-        socket.emit('error', { message: 'Only host or co-host can disable all screen shares' });
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to change room settings' });
         return;
       }
 
@@ -941,6 +999,181 @@ class SocketService {
     }
   }
 
+  handleLockMeeting(socket, { roomId, locked }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to change room settings' });
+        return;
+      }
+
+      if (!this.rooms.has(roomId)) {
+        this.rooms.set(roomId, {});
+      }
+      this.rooms.get(roomId).isLocked = locked;
+
+      this.io.to(roomId).emit('meeting-lock-changed', {
+        locked,
+        by: host.name,
+        timestamp: Date.now()
+      });
+
+      logger.info(`${host.name} ${locked ? 'locked' : 'unlocked'} room ${roomId}`);
+    } catch (error) {
+      logger.error('Error locking meeting:', error);
+      socket.emit('error', { message: 'Failed to lock meeting' });
+    }
+  }
+
+  handleToggleSelfUnmute(socket, { roomId, enabled }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to change room settings' });
+        return;
+      }
+
+      if (!this.rooms.has(roomId)) {
+        this.rooms.set(roomId, {});
+      }
+      this.rooms.get(roomId).allowSelfUnmute = enabled;
+
+      this.io.to(roomId).emit('self-unmute-permission-changed', {
+        enabled,
+        by: host.name,
+        timestamp: Date.now()
+      });
+
+      logger.info(`${host.name} ${enabled ? 'allowed' : 'disallowed'} self-unmute in room ${roomId}`);
+    } catch (error) {
+      logger.error('Error toggling self-unmute permission:', error);
+      socket.emit('error', { message: 'Failed to change self-unmute permission' });
+    }
+  }
+
+  handleToggleParticipantScreenShare(socket, { roomId, enabled }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to change room settings' });
+        return;
+      }
+
+      if (!this.rooms.has(roomId)) {
+        this.rooms.set(roomId, {});
+      }
+      this.rooms.get(roomId).allowParticipantScreenShare = enabled;
+
+      this.io.to(roomId).emit('participant-screenshare-permission-changed', {
+        enabled,
+        by: host.name,
+        timestamp: Date.now()
+      });
+
+      logger.info(`${host.name} ${enabled ? 'allowed' : 'disallowed'} participant screen share in room ${roomId}`);
+    } catch (error) {
+      logger.error('Error toggling participant screen share permission:', error);
+      socket.emit('error', { message: 'Failed to change screen share permission' });
+    }
+  }
+
+  // Host-only (not gated by canChangeRoomSettings): a co-host granting itself
+  // or other co-hosts more power would be a privilege escalation, so only the
+  // actual host can change what co-hosts are allowed to do.
+  handleSetCoHostPermissions(socket, { roomId, canManageParticipants, canChangeSettings }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!host?.isHost) {
+        socket.emit('error', { message: 'Only the host can change co-host permissions' });
+        return;
+      }
+
+      if (!this.rooms.has(roomId)) {
+        this.rooms.set(roomId, {});
+      }
+      const roomSettings = this.rooms.get(roomId);
+      if (typeof canManageParticipants === 'boolean') {
+        roomSettings.coHostsCanManageParticipants = canManageParticipants;
+      }
+      if (typeof canChangeSettings === 'boolean') {
+        roomSettings.coHostsCanChangeSettings = canChangeSettings;
+      }
+
+      this.io.to(roomId).emit('co-host-permissions-changed', {
+        coHostsCanManageParticipants: roomSettings.coHostsCanManageParticipants,
+        coHostsCanChangeSettings: roomSettings.coHostsCanChangeSettings,
+        by: host.name,
+        timestamp: Date.now()
+      });
+
+      logger.info(`${host.name} updated co-host permissions in room ${roomId}`);
+    } catch (error) {
+      logger.error('Error setting co-host permissions:', error);
+      socket.emit('error', { message: 'Failed to change co-host permissions' });
+    }
+  }
+
+  handleRaiseHand(socket, { roomId }) {
+    try {
+      const user = this.users.get(socket.id);
+      if (!user) return;
+
+      user.handRaised = true;
+      this.io.to(roomId).emit('hand-raised', {
+        socketId: socket.id,
+        userName: user.name,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      logger.error('Error raising hand:', error);
+    }
+  }
+
+  handleLowerHand(socket, { roomId, targetSocketId }) {
+    try {
+      const user = this.users.get(socket.id);
+      if (!user) return;
+
+      // Anyone can lower their own hand; host/co-host can lower someone else's.
+      const target = targetSocketId && targetSocketId !== socket.id ? targetSocketId : socket.id;
+      if (target !== socket.id && !this.canManageParticipants(user, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to lower someone else\'s hand' });
+        return;
+      }
+
+      const targetUser = this.users.get(target);
+      if (targetUser) targetUser.handRaised = false;
+
+      this.io.to(roomId).emit('hand-lowered', {
+        socketId: target,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      logger.error('Error lowering hand:', error);
+    }
+  }
+
+  handleSendReaction(socket, { roomId, emoji }) {
+    try {
+      const user = this.users.get(socket.id);
+      if (!user) return;
+
+      // Small fixed set - reactions are decorative, not user-generated text,
+      // so there's no reason to accept arbitrary strings here.
+      const ALLOWED_REACTIONS = ['👍', '👏', '❤️', '😂', '🎉', '👋'];
+      if (!ALLOWED_REACTIONS.includes(emoji)) return;
+
+      this.io.to(roomId).emit('reaction-received', {
+        socketId: socket.id,
+        userName: user.name,
+        emoji,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      logger.error('Error sending reaction:', error);
+    }
+  }
+
   async handleHostRejoin(socket, { roomId, userId, userName, profilePicture, role, audioEnabled, videoEnabled }) {
     try {
       await this.handleJoinRoom(socket, {
@@ -973,7 +1206,12 @@ class SocketService {
 
       // Check room settings
       const roomSettings = this.rooms.get(roomId);
-      
+
+      if (roomSettings?.isLocked) {
+        socket.emit('error', { message: 'This meeting is locked by the host.' });
+        return;
+      }
+
       // If room is not private, allow direct join
       if (!roomSettings || !roomSettings.isPrivate) {
         await this.handleJoinRoom(socket, { roomId, userName, profilePicture, audioEnabled, videoEnabled });

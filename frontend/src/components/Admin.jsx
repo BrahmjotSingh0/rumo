@@ -16,6 +16,23 @@ const previewUrl = (value) => {
   return value;
 };
 
+// Label/description shown for each toggle in the Features card. Keys must
+// match backend/src/config/features.js exactly.
+const FEATURE_LABELS = [
+  { key: 'chat', label: 'Chat', description: 'Text chat during meetings' },
+  { key: 'screenShare', label: 'Screen sharing', description: 'Anyone can share their screen (subject to host permission)' },
+  { key: 'virtualBackgrounds', label: 'Virtual backgrounds', description: 'Background blur/replacement in the settings panel' },
+  { key: 'coHost', label: 'Co-hosts', description: 'Promoting participants to co-host' },
+  { key: 'waitingRoom', label: 'Private rooms / waiting room', description: 'The Room Type host control' },
+  { key: 'muteAll', label: 'Mute all', description: 'The Mute All Participants host control' },
+  { key: 'disableAllCameras', label: 'Disable all cameras', description: 'The Disable All Cameras host control' },
+  { key: 'disableAllScreenShares', label: 'Disable all screen shares', description: 'The Disable All Screen Shares host control' },
+  { key: 'lockMeeting', label: 'Lock meeting', description: 'Prevent anyone new from joining' },
+  { key: 'layoutSwitch', label: 'Layout switcher', description: 'Grid / speaker / interview view switcher' },
+  { key: 'raiseHand', label: 'Raise hand', description: 'The raise-hand control' },
+  { key: 'reactions', label: 'Reactions', description: 'Emoji reactions during a call' },
+];
+
 const Admin = () => {
   const [token, setToken] = useState(() => {
     try {
@@ -31,9 +48,15 @@ const Admin = () => {
     primaryColor: branding.primaryColor,
     logoIcon: branding.logoIcon,
     logoFull: branding.logoFull,
+    features: { ...branding.features },
   });
+  const [backgroundPresets, setBackgroundPresets] = useState(branding.backgroundPresets);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState('');
+  const [uploadingBackground, setUploadingBackground] = useState(false);
+
+  const toggleFeature = (key) =>
+    setForm((prev) => ({ ...prev, features: { ...prev.features, [key]: !prev.features[key] } }));
 
   const update = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
 
@@ -71,6 +94,61 @@ const Admin = () => {
       toast.error('Upload failed. Is the backend reachable?');
     } finally {
       setUploading('');
+    }
+  };
+
+  const addBackground = async (file) => {
+    if (!requireToken() || !file) return;
+
+    setUploadingBackground(true);
+    try {
+      const body = new FormData();
+      body.append('background', file);
+      body.append('name', file.name.replace(/\.[^.]+$/, '').slice(0, 60));
+
+      const res = await fetch(`${API_BASE_URL}/api/settings/branding/backgrounds`, {
+        method: 'POST',
+        headers: { 'x-admin-token': token },
+        body,
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data.error || 'Upload failed');
+        return;
+      }
+
+      const resolved = data.backgroundPresets.map((p) => ({ ...p, url: previewUrl(p.url) }));
+      setBackgroundPresets(resolved);
+      branding.backgroundPresets = resolved;
+      toast.success('Background added.');
+    } catch {
+      toast.error('Upload failed. Is the backend reachable?');
+    } finally {
+      setUploadingBackground(false);
+    }
+  };
+
+  const removeBackground = async (id) => {
+    if (!requireToken()) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/settings/branding/backgrounds/${id}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-token': token },
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to remove background');
+        return;
+      }
+
+      const resolved = data.backgroundPresets.map((p) => ({ ...p, url: previewUrl(p.url) }));
+      setBackgroundPresets(resolved);
+      branding.backgroundPresets = resolved;
+    } catch {
+      toast.error('Failed to remove background. Is the backend reachable?');
     }
   };
 
@@ -187,6 +265,33 @@ const Admin = () => {
           ))}
 
           <div className="pt-4 border-t border-gray-700">
+            <h2 className="text-lg font-semibold text-white mb-1">Features</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              Turn off anything you don't want offered on this instance. Hidden client-side; not a security boundary.
+            </p>
+            <div className="space-y-3">
+              {FEATURE_LABELS.map(({ key, label, description }) => (
+                <div key={key} className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-white">{label}</p>
+                    <p className="text-xs text-gray-400">{description}</p>
+                  </div>
+                  <button
+                    onClick={() => toggleFeature(key)}
+                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                      form.features[key] ? 'bg-primary-600' : 'bg-gray-600'
+                    }`}
+                  >
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-0.5 transition-transform ${
+                      form.features[key] ? 'translate-x-5' : 'translate-x-0.5'
+                    }`} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-gray-700">
             <Input
               type="password"
               label="Admin token"
@@ -199,6 +304,41 @@ const Admin = () => {
           <Button onClick={save} loading={saving} size="lg" className="w-full">
             Save changes
           </Button>
+        </div>
+
+        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 space-y-4 mt-6">
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-1">Virtual backgrounds</h2>
+            <p className="text-sm text-gray-400">
+              Preset backgrounds offered to every participant, in addition to whatever they upload for themselves. Changes here apply immediately.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+            {backgroundPresets.map((preset) => (
+              <div key={preset.id} className="relative aspect-video rounded-lg overflow-hidden border border-gray-700 group">
+                <img src={preset.url} alt={preset.name} className="w-full h-full object-cover" />
+                <button
+                  onClick={() => removeBackground(preset.id)}
+                  className="absolute top-1 right-1 bg-black/70 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Remove"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+
+            <label className="aspect-video rounded-lg border-2 border-dashed border-gray-600 hover:border-gray-500 flex flex-col items-center justify-center gap-1 cursor-pointer text-gray-400 text-xs">
+              {uploadingBackground ? 'Uploading...' : 'Add background'}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                disabled={uploadingBackground}
+                onChange={(e) => { addBackground(e.target.files?.[0]); e.target.value = ''; }}
+              />
+            </label>
+          </div>
         </div>
       </div>
     </div>
