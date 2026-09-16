@@ -11,7 +11,11 @@
   <img src="https://img.shields.io/badge/self--hosted-yes-2E5BFF.svg" alt="Self-hosted">
   <img src="https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker ready">
   <img src="https://img.shields.io/badge/node-%3E%3D22-2E5BFF.svg" alt="Node >= 22">
+  <br />
+  <br />
+  <a href="https://www.producthunt.com/products/rumo-2?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-rumo-2" target="_blank" rel="noopener noreferrer"><img alt="Rumo - Self-hosted video meetings without accounts or subscriptions | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1252329&amp;theme=light&amp;t=1789561820284"></a>
 </p>
+
 
 Spin it up on your own server and share the link. Built with WebRTC for peer-to-peer audio/video, Socket.IO for signaling and real-time chat/host controls, React on the frontend, and Postgres for room state.
 
