@@ -4,6 +4,73 @@
  * Much more effective than browser's built-in noise suppression
  */
 
+import { RnnoiseWorkletNode, loadRnnoise } from '@sapphi-red/web-noise-suppressor'
+import rnnoiseWorkletPath from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url'
+import rnnoiseWasmPath from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url'
+import rnnoiseWasmSimdPath from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url'
+
+// Real spectral denoising (an actual ML model - RNNoise - trained to tell
+// voice apart from background noise), unlike NoiseGateProcessor below, which
+// only mutes below a volume threshold and does nothing about noise mixed in
+// with actual speech. This is what createNoiseSuppressor() tries first now;
+// the gate remains as a fallback for a browser without AudioWorklet support.
+export class RnnoiseProcessor {
+  constructor() {
+    this.audioContext = null
+    this.sourceNode = null
+    this.rnnoiseNode = null
+    this.destination = null
+  }
+
+  async initialize(inputStream) {
+    const audioTracks = inputStream.getAudioTracks()
+    if (audioTracks.length === 0) {
+      throw new Error('No audio tracks found')
+    }
+
+    // RnnoiseWorkletNode assumes 48kHz.
+    this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+      sampleRate: 48000,
+      latencyHint: 'interactive'
+    })
+
+    await this.audioContext.audioWorklet.addModule(rnnoiseWorkletPath)
+    const wasmBinary = await loadRnnoise({ url: rnnoiseWasmPath, simdUrl: rnnoiseWasmSimdPath })
+
+    this.sourceNode = this.audioContext.createMediaStreamSource(inputStream)
+    this.rnnoiseNode = new RnnoiseWorkletNode(this.audioContext, { maxChannels: 1, wasmBinary })
+    this.destination = this.audioContext.createMediaStreamDestination()
+
+    this.sourceNode.connect(this.rnnoiseNode)
+    this.rnnoiseNode.connect(this.destination)
+
+    console.log('✅ RNNoise (real-time spectral denoising) initialized')
+    return this.destination.stream
+  }
+
+  // No per-instance on/off switch - the app disposes and recreates the
+  // processor to toggle noise suppression (see MeetingPro.jsx), so this is
+  // just here for interface parity with the other processors below.
+  setEnabled() {}
+
+  dispose() {
+    try {
+      this.sourceNode?.disconnect()
+      this.rnnoiseNode?.disconnect()
+      this.rnnoiseNode?.destroy()
+      if (this.audioContext && this.audioContext.state !== 'closed') {
+        this.audioContext.close()
+      }
+    } catch (error) {
+      console.error('Error disposing RNNoise processor:', error)
+    } finally {
+      this.sourceNode = null
+      this.rnnoiseNode = null
+      this.audioContext = null
+    }
+  }
+}
+
 /**
  * Advanced Noise Gate Processor
  * Uses Web Audio API to implement aggressive noise suppression
@@ -217,33 +284,41 @@ export class SimpleNoiseSuppressor {
 }
 
 /**
- * Factory function to create noise suppressor
+ * Factory function to create a noise suppressor. Tries real spectral
+ * denoising (RNNoise, via AudioWorklet+WASM) first, falls back to the
+ * simpler volume-threshold gate if that fails to initialize (e.g. a browser
+ * without AudioWorklet support), and falls back once more to a plain
+ * passthrough if even that fails - each step logged so it's clear from the
+ * console which one ended up active.
  * @param {MediaStream} inputStream - Input audio stream
- * @param {boolean} useAdvanced - Use advanced noise gate (true) or browser only (false)
+ * @param {boolean} useAdvanced - Use noise suppression (true) or browser only (false)
  * @returns {Promise<{stream: MediaStream, processor: Object}>}
  */
 export async function createNoiseSuppressor(inputStream, useAdvanced = true) {
-  let processor
-  let outputStream
-
-  try {
-    if (useAdvanced) {
-      processor = new NoiseGateProcessor(-45) // -45 dB threshold (good balance)
-      outputStream = await processor.initialize(inputStream)
-      console.log('🎯 Using advanced noise gate for strong noise suppression')
-    } else {
-      processor = new SimpleNoiseSuppressor()
-      outputStream = await processor.initialize(inputStream)
-    }
-
-    return { stream: outputStream, processor }
-  } catch (error) {
-    console.error('Advanced noise suppression failed, falling back to simple:', error)
-    
-    // Fallback to simple
-    processor = new SimpleNoiseSuppressor()
-    outputStream = await processor.initialize(inputStream)
-    
+  if (!useAdvanced) {
+    const processor = new SimpleNoiseSuppressor()
+    const outputStream = await processor.initialize(inputStream)
     return { stream: outputStream, processor }
   }
+
+  try {
+    const processor = new RnnoiseProcessor()
+    const outputStream = await processor.initialize(inputStream)
+    return { stream: outputStream, processor }
+  } catch (error) {
+    console.error('RNNoise failed to initialize, falling back to the noise gate:', error)
+  }
+
+  try {
+    const processor = new NoiseGateProcessor(-45) // -45 dB threshold (good balance)
+    const outputStream = await processor.initialize(inputStream)
+    console.log('🎯 Using the volume-threshold noise gate (RNNoise unavailable)')
+    return { stream: outputStream, processor }
+  } catch (error) {
+    console.error('Noise gate failed too, falling back to no processing:', error)
+  }
+
+  const processor = new SimpleNoiseSuppressor()
+  const outputStream = await processor.initialize(inputStream)
+  return { stream: outputStream, processor }
 }

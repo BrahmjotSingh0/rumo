@@ -42,6 +42,7 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 ## Features
 
 - **Video/audio calls**: adaptive quality, screen sharing, background blur and virtual backgrounds (upload your own or pick from an admin-managed gallery), low-bandwidth mode for poor connections
+- **Real noise suppression**: RNNoise, a machine-learned model that separates voice from background noise, running entirely client-side via WebAssembly - not just a volume gate that mutes you between words (falls back to that gate, then to no processing, if a browser doesn't support it)
 - **Guest access**: enter a name and join, no account required. Whoever creates a room is its host, with a signed token so reclaiming host status after a reconnect can't just be asserted by any client
 - **Host controls**: mute/remove participants, co-hosts with configurable permissions, lock the meeting, waiting room and optional PIN for private rooms, participant cap, host transfer
 - **Schedule for later**: optional date/time on a room, with one-click "Add to Google Calendar / Outlook" links and an `.ics` download, generated entirely client-side
