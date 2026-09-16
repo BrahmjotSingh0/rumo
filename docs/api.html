@@ -329,7 +329,7 @@
         <tr><td><code>participant.left</code></td><td>anyone leaves</td><td><code>{ roomId, participantId, name, reason }</code></td></tr>
       </table>
     </div>
-    <p>Each request body looks like <code>{ "event": "...", "data": {...}, "timestamp": "..." }</code>. If <code>WEBHOOK_SECRET</code> is set, requests carry an <code>X-Rumo-Signature</code> header (hex HMAC-SHA256 of the raw body) so you can verify they came from your instance. Delivery is fire-and-forget - a slow or failing endpoint is logged and otherwise ignored.</p>
+    <p>By default (<code>WEBHOOK_FORMAT=generic</code>) each request body looks like <code>{ "event": "...", "data": {...}, "timestamp": "..." }</code>. Set <code>WEBHOOK_FORMAT=slack</code> or <code>discord</code> to send a plain-text summary shaped for that platform's incoming-webhook API instead (<code>{ "text": "..." }</code> / <code>{ "content": "..." }</code>) - <code>WEBHOOK_URL</code> can then point straight at a Slack/Discord incoming webhook URL, no adapter needed. If <code>WEBHOOK_SECRET</code> is set, requests carry an <code>X-Rumo-Signature</code> header (hex HMAC-SHA256 of the raw body) regardless of format, so a <code>generic</code> receiver can verify they came from your instance. Delivery is fire-and-forget - a slow or failing endpoint is logged and otherwise ignored.</p>
   </div>
 </section>
 </main>

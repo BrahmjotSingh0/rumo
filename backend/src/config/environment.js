@@ -69,7 +69,12 @@ const config = {
   // Unset by default - no outbound requests happen unless configured.
   webhook: {
     url: process.env.WEBHOOK_URL || '',
-    secret: process.env.WEBHOOK_SECRET || ''
+    secret: process.env.WEBHOOK_SECRET || '',
+    // 'generic' (default): { event, data, timestamp } for your own receiver.
+    // 'slack' / 'discord': a plain-text summary shaped for that platform's
+    // incoming-webhook contract ({ text } / { content }), so WEBHOOK_URL can
+    // point straight at a Slack/Discord incoming webhook with no adapter.
+    format: (process.env.WEBHOOK_FORMAT || 'generic').toLowerCase()
   },
 
   // Logging Configuration

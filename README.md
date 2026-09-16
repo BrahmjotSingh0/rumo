@@ -54,7 +54,7 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 - **Six meeting layouts**: grid, speaker, sidebar, spotlight, interview, and webinar, picked from a single layout menu
 - **Decluttered in-call UI**: a small control bar (reactions and raise-hand share one menu, less-used tools live under one "More"), a collapsible side panel, and host controls/breakout rooms tucked into their own "Host tools" panel instead of crowding the participant list for everyone
 - **Embeddable**: drop a meeting into your own site as an iframe, with a small JS API (`embed.js`) to control it and listen for events - see [`docs/EMBEDDING.md`](docs/EMBEDDING.md)
-- **Webhooks**: optional HMAC-signed POST requests for room/participant lifecycle events, for your own integrations
+- **Webhooks, including Slack/Discord**: optional POST requests for room/participant lifecycle events - HMAC-signed for your own integrations, or shaped as a plain-text message so `WEBHOOK_URL` can point straight at a Slack/Discord incoming webhook
 - **Connection quality monitoring** and automatic reconnection
 - **Configurable branding**: change the name, logo, tagline, and accent color from an admin panel in the browser, or a JSON file - no rebuild required
 - **Feature flags**: turn off chat, screen sharing, co-hosts, polls, whiteboard, breakout rooms, or any other optional control for the whole instance from the admin panel - including the admin panel's own visibility (on by default)
@@ -173,7 +173,7 @@ STUN (included, free, via Google's public servers) is enough for most networks. 
 
 Anyone creating a room from the home page can, under "Advanced options," set a PIN, a max participant count, and/or schedule it for later (which just shows calendar links instead of joining immediately - the room is real and joinable right away either way). The same options are available from `POST /api/rooms` if you're creating rooms from your own code - see [`docs/API.md`](docs/API.md).
 
-To get notified about room/participant activity elsewhere (logging, chat-ops, your own dashboard), set `WEBHOOK_URL` in the backend's `.env` (and `WEBHOOK_SECRET` to have requests signed). Off by default - nothing is sent unless you set it.
+To get notified about room/participant activity elsewhere (logging, chat-ops, your own dashboard), set `WEBHOOK_URL` in the backend's `.env` (and `WEBHOOK_SECRET` to have requests signed). Off by default - nothing is sent unless you set it. Set `WEBHOOK_FORMAT=slack` or `discord` and `WEBHOOK_URL` can point straight at that platform's incoming-webhook URL - a plain-text notification lands in the channel whenever a room starts/ends or someone joins/leaves, no bot, OAuth app, or extra service required.
 
 ### Host tools, breakout rooms, and hiding the admin page
 

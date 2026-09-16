@@ -190,12 +190,21 @@ Optional, off by default. Set `WEBHOOK_URL` (and, to have requests signed, `WEBH
 | `participant.joined` | anyone joins a room over Socket.IO | `{ roomId, participantId, name, isHost }` |
 | `participant.left` | anyone leaves (disconnects, is kicked, closes the tab) | `{ roomId, participantId, name, reason }` |
 
-Request body:
+Request body (default, `WEBHOOK_FORMAT=generic`):
 ```json
 { "event": "participant.joined", "data": { "...": "..." }, "timestamp": "2026-01-01T00:00:00.000Z" }
 ```
 
-If `WEBHOOK_SECRET` is set, each request carries `X-Rumo-Signature: <hex hmac-sha256 of the raw body>` so you can verify it came from your own instance. Delivery is fire-and-forget: a slow or failing webhook endpoint is logged and otherwise ignored, it never blocks or fails the underlying action.
+### Slack / Discord
+
+Set `WEBHOOK_FORMAT=slack` or `WEBHOOK_FORMAT=discord` and `WEBHOOK_URL` can point straight at that platform's incoming-webhook URL - no adapter or extra service needed. Instead of the JSON envelope above, the body becomes a plain-text summary shaped for that platform's API:
+
+```json
+{ "text": "New Rumo room created: \"Quick Meeting\" (ABC-123-XYZ)" }
+```
+(`{ "content": "..." }` for Discord instead of `{ "text": "..." }`.)
+
+If `WEBHOOK_SECRET` is set, each request still carries `X-Rumo-Signature: <hex hmac-sha256 of the raw body>` regardless of format (Slack/Discord ignore it; it's there so your own `generic` receiver can verify the request came from your instance). Delivery is fire-and-forget: a slow or failing webhook endpoint is logged and otherwise ignored, it never blocks or fails the underlying action.
 
 ---
 
