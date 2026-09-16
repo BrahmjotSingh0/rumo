@@ -14,6 +14,12 @@
   <br />
   <br />
   <a href="https://www.producthunt.com/products/rumo-2?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-rumo-2" target="_blank" rel="noopener noreferrer"><img alt="Rumo - Self-hosted video meetings without accounts or subscriptions | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1252329&amp;theme=light&amp;t=1789561820284"></a>
+<a href="https://alternativeto.net/software/rumo/about/?utm_source=badge&utm_medium=referral" target="_blank">
+  <img src="https://alternativeto.net/static/badges/badge-wide-dark.svg"
+       alt="Rumo | AlternativeTo"
+       width="250" height="54"
+       style="width: 250px; height: 54px;" />
+</a>
 </p>
 
 
