@@ -79,6 +79,15 @@ Body: `{ "pin": "..." }` (omit or send empty if the room has no PIN). Returns `2
 
 This is a courtesy check for building your own pre-join UI (it's what Rumo's own PreJoin screen calls). It doesn't grant access by itself - the same PIN is re-checked server-side when the socket actually joins (`request-join` below), so there's no way to skip it by only calling this endpoint.
 
+### `POST /api/rooms/:roomId/files`
+
+Multipart form upload, field name `file`. Used for in-call file sharing (chat's paperclip button); the returned URL is then sent as a normal `send-message` with `type: 'file'` (see Chat below). Accepts images (PNG/JPEG/WebP/GIF), PDF, plain text, zip, and Office/OpenXML documents, up to 15MB. `404` if the room doesn't exist.
+
+**Response** `201`
+```json
+{ "url": "/uploads/chat/3f1c....pdf", "name": "notes.pdf", "size": 48213, "mimeType": "application/pdf" }
+```
+
 ### `GET /api/rooms`
 
 Paginated list of active rooms. Query params: `page` (default 1), `limit` (default 10).
@@ -117,12 +126,13 @@ or, once something has been saved:
   "logoIcon": "/uploads/branding/....svg",
   "logoFull": "/uploads/branding/....svg",
   "primaryColor": "#2E5BFF",
-  "features": { "chat": true, "screenShare": true, "virtualBackgrounds": true, "coHost": true, "waitingRoom": true, "muteAll": true, "disableAllCameras": true, "disableAllScreenShares": true, "lockMeeting": true, "layoutSwitch": true, "raiseHand": true, "reactions": true, "liveCaptions": true, "localRecording": true },
+  "features": { "chat": true, "screenShare": true, "virtualBackgrounds": true, "coHost": true, "waitingRoom": true, "muteAll": true, "disableAllCameras": true, "disableAllScreenShares": true, "lockMeeting": true, "layoutSwitch": true, "raiseHand": true, "reactions": true, "liveCaptions": true, "localRecording": true, "polls": true, "fileSharing": true, "whiteboard": true, "breakoutRooms": true, "hostControls": true },
   "backgroundPresets": [{ "id": "uuid", "url": "/uploads/backgrounds/....jpg", "name": "Office" }],
+  "adminPageEnabled": true,
   "updatedAt": "2026-01-01T00:00:00.000Z"
 }
 ```
-`appName`/`tagline`/etc are only present once set; the frontend falls back to `branding.json` / built-in defaults for anything missing. `features` and `backgroundPresets` are always present (with defaults) regardless of `configured`.
+`appName`/`tagline`/etc are only present once set; the frontend falls back to `branding.json` / built-in defaults for anything missing. `features`, `backgroundPresets`, and `adminPageEnabled` are always present (with defaults) regardless of `configured`. `adminPageEnabled` (default `true`) only controls whether the `/admin` frontend route shows its form or a locked screen for visitors without the admin token - it's a presentation choice, not a second security boundary alongside `x-admin-token` below.
 
 ### `PUT /api/settings/branding`
 
@@ -138,6 +148,7 @@ Requires header `x-admin-token: <ADMIN_SETUP_TOKEN>`. Returns `403` if `ADMIN_SE
 | `logoFull` | string | path, same as above |
 | `primaryColor` | string | hex color, e.g. `#2E5BFF` |
 | `features` | object | any subset of the keys shown in the `GET` response above; merged onto what's already stored, not replaced |
+| `adminPageEnabled` | boolean | whether `/admin` shows its form to visitors without the admin token, or a locked screen instead |
 
 **Response** `200`: same shape as the `GET` above.
 
@@ -253,10 +264,46 @@ On failure the sender gets back `webrtc-error: { type, error }`.
 
 | Event | Direction | Payload |
 |---|---|---|
-| `send-message` | client → server | `{ roomId, message, userName, type? }` (rate-limited to 30/min per socket; over the limit gets `rate-limit-exceeded: { type: 'chat' }`) |
-| `new-message` | → room | the stored `{ id, userId, userName, message, type, timestamp }` |
+| `send-message` | client → server | `{ roomId, message, userName, type?, fileUrl?, fileName?, fileSize? }` (rate-limited to 30/min per socket; over the limit gets `rate-limit-exceeded: { type: 'chat' }`) |
+| `new-message` | → room | the stored `{ id, userId, userName, message, type, timestamp, fileUrl?, fileName?, fileSize? }` |
 | `delete-message` | client → server (host only) | `{ roomId, messageId }` |
 | `message-deleted` | → room | `{ messageId }` |
+
+For a file message, upload it first via `POST /api/rooms/:roomId/files` above, then send `send-message` with `type: 'file'` and the `fileUrl`/`fileName`/`fileSize` from that response. The server only accepts `fileUrl` if it points at that same upload directory (`/uploads/chat/...`) - anything else is silently dropped down to a plain-text message, so chat can't be used to relay arbitrary external URLs as if they were trusted uploads.
+
+### Polls
+
+Single-choice, one per room at a time. Vote counts are broadcast to everyone; who voted for which option never is.
+
+| Event (client → server) | Tier | Payload | Broadcast to room as |
+|---|---|---|---|
+| `create-poll` | room settings | `{ roomId, question, options }` (2-10 options) | `poll-created: { id, question, options: [{ text, votes }], isOpen, totalVoters, createdBy }` |
+| `vote-poll` | anyone | `{ roomId, optionIndex }` (re-voting replaces your previous choice) | `poll-updated`, same shape as `poll-created` |
+| `close-poll` | room settings | `{ roomId }` | `poll-closed`, same shape, `isOpen: false` |
+
+"Room settings" is the same permission tier defined under **Host controls** below. A late joiner gets the currently active poll (if any) privately as `poll-created` right after joining.
+
+### Whiteboard
+
+A shared drawing surface. Anyone in the room can draw; clearing it requires the "room settings" tier.
+
+| Event (client → server) | Payload | Broadcast to room as |
+|---|---|---|
+| `whiteboard-draw` | `{ roomId, x0, y0, x1, y1, color, width }` - coordinates are fractions (0-1) of the sender's own canvas, not pixels, so it replays correctly regardless of each viewer's window size | `whiteboard-draw`, same payload, to everyone else (the sender already drew it locally) |
+| `whiteboard-clear` | room settings tier only - `{ roomId }` | `whiteboard-cleared: { by }` |
+
+A late joiner gets the whole stroke history so far, privately, as `whiteboard-state: [stroke, ...]` right after joining. The server caps stored strokes at 5000 per room, dropping the oldest ones past that.
+
+### Breakout rooms
+
+Host-only (or co-host, if the room settings tier allows it). Each breakout room is a real room created the same way `POST /api/rooms` creates one - assigning someone to it just tells their client to navigate to that room's URL, reusing the whole normal join flow rather than a separate mesh-management system. That also means a breakout room inherits the same "anyone with the link can join" trust model as any other room.
+
+| Event (client → server) | Payload | Effect |
+|---|---|---|
+| `create-breakout-rooms` | `{ roomId, count }` (2-20) | Creates `count` new rooms; room gets `breakout-rooms-created: { rooms: [{ index, id, title }] }` |
+| `assign-breakout` | `{ roomId, targetSocketId, breakoutIndex }` | That participant's socket gets `breakout-assigned: { breakoutRoomId, breakoutTitle, mainRoomId }` |
+| `auto-assign-breakouts` | `{ roomId }` | Round-robins every current participant (except the caller) across the existing breakout rooms, each getting `breakout-assigned` as above |
+| `close-breakout-rooms` | `{ roomId }` | Everyone currently in one of those breakout rooms gets `breakout-closed: { mainRoomId }`; room gets `breakout-rooms-closed`. Doesn't move anyone back automatically - the client shows a "return to main room" banner instead |
 
 ### Host controls
 

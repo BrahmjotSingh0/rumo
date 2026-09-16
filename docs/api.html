@@ -58,6 +58,10 @@
         <li><a href="#media">Media state</a></li>
         <li><a href="#chat">Chat</a></li>
         <li><a href="#host-controls">Host controls</a></li>
+        <li><a href="#reactions">Raise hand / reactions</a></li>
+        <li><a href="#polls">Polls</a></li>
+        <li><a href="#whiteboard">Whiteboard</a></li>
+        <li><a href="#breakout-rooms">Breakout rooms</a></li>
         <li><a href="#captions">Live captions</a></li>
         <li><a href="#webhooks">Webhooks</a></li>
         <li><a href="#quality">Quality monitoring</a></li>
@@ -135,7 +139,7 @@
       <table>
         <tr><th>Endpoint</th><th>Auth</th><th>Purpose</th></tr>
         <tr><td><code>GET /api/settings/branding</code></td><td>None (public)</td><td>Current saved branding, or <code>{ "configured": false }</code> if nothing's been saved yet.</td></tr>
-        <tr><td><code>PUT /api/settings/branding</code></td><td><code>x-admin-token</code> header</td><td>Body: any of <code>appName</code>, <code>tagline</code>, <code>description</code>, <code>logoIcon</code>, <code>logoFull</code>, <code>primaryColor</code> (hex). Only the fields you send are changed.</td></tr>
+        <tr><td><code>PUT /api/settings/branding</code></td><td><code>x-admin-token</code> header</td><td>Body: any of <code>appName</code>, <code>tagline</code>, <code>description</code>, <code>logoIcon</code>, <code>logoFull</code>, <code>primaryColor</code> (hex), <code>features</code> (object, merged onto what's stored), <code>adminPageEnabled</code> (boolean). Only the fields you send are changed.</td></tr>
         <tr><td><code>POST /api/settings/branding/logo</code></td><td><code>x-admin-token</code> header</td><td>Multipart upload, field name <code>logo</code>. SVG, PNG, JPEG, or WebP, up to 2MB. Returns <code>{ "url": "/uploads/branding/..." }</code> to use as <code>logoIcon</code>/<code>logoFull</code> above.</td></tr>
       </table>
     </div>
@@ -209,12 +213,13 @@
     <div class="table-wrap">
       <table>
         <tr><th>Event</th><th>Direction</th><th>Payload</th></tr>
-        <tr><td><code>send-message</code></td><td>client to server</td><td><code>{ roomId, message, userName, type? }</code>, rate-limited to 30/min per socket (over the limit gets <code>rate-limit-exceeded: { type: 'chat' }</code>)</td></tr>
-        <tr><td><code>new-message</code></td><td>to room</td><td>stored <code>{ id, userId, userName, message, type, timestamp }</code></td></tr>
+        <tr><td><code>send-message</code></td><td>client to server</td><td><code>{ roomId, message, userName, type?, fileUrl?, fileName?, fileSize? }</code>, rate-limited to 30/min per socket (over the limit gets <code>rate-limit-exceeded: { type: 'chat' }</code>)</td></tr>
+        <tr><td><code>new-message</code></td><td>to room</td><td>stored <code>{ id, userId, userName, message, type, timestamp, fileUrl?, fileName?, fileSize? }</code></td></tr>
         <tr><td><code>delete-message</code></td><td>client to server (host only)</td><td><code>{ roomId, messageId }</code></td></tr>
         <tr><td><code>message-deleted</code></td><td>to room</td><td><code>{ messageId }</code></td></tr>
       </table>
     </div>
+    <p>For a file message, upload it first via <code>POST /api/rooms/:roomId/files</code>, then send <code>send-message</code> with <code>type: 'file'</code>. The server only accepts a <code>fileUrl</code> pointing at that same upload directory - anything else is silently dropped to a plain-text message.</p>
 
     <h3 id="host-controls">Host controls</h3>
     <p>All of these require the caller to be host (or co-host, where noted); otherwise the server replies with <code>error: { message }</code> and does nothing.</p>
@@ -229,12 +234,61 @@
         <tr><td><code>toggle-chat</code></td><td>host/co-host</td><td><code>{ roomId, enabled }</code></td><td>room gets <code>chat-status-changed</code></td></tr>
         <tr><td><code>disable-all-cameras</code></td><td>host/co-host</td><td><code>{ roomId, enabled }</code></td><td>room gets <code>all-cameras-disabled</code></td></tr>
         <tr><td><code>disable-all-screenshares</code></td><td>host/co-host</td><td><code>{ roomId, enabled }</code></td><td>room gets <code>all-screenshares-disabled</code></td></tr>
+        <tr><td><code>lock-meeting</code></td><td>host/co-host</td><td><code>{ roomId, locked }</code></td><td>room gets <code>meeting-lock-changed</code>; when locked, new joins are rejected outright, no waiting room offered</td></tr>
+        <tr><td><code>toggle-self-unmute</code></td><td>host/co-host</td><td><code>{ roomId, enabled }</code></td><td>room gets <code>self-unmute-permission-changed</code>; when off, a participant's own <code>toggle-audio: { enabled: true }</code> is rejected</td></tr>
+        <tr><td><code>toggle-participant-screenshare</code></td><td>host/co-host</td><td><code>{ roomId, enabled }</code></td><td>room gets <code>participant-screenshare-permission-changed</code></td></tr>
         <tr><td><code>make-cohost</code></td><td>host only</td><td><code>{ roomId, targetSocketId }</code></td><td>target gets <code>role-changed</code>, room gets <code>participant-role-updated</code></td></tr>
         <tr><td><code>remove-cohost</code></td><td>host only</td><td><code>{ roomId, targetSocketId }</code></td><td>same, with <code>role: 'participant'</code></td></tr>
         <tr><td><code>set-room-type</code></td><td>host only</td><td><code>{ roomId, isPrivate }</code></td><td>room gets <code>room-type-changed</code>; controls whether new joiners hit the waiting room</td></tr>
+        <tr><td><code>set-cohost-permissions</code></td><td>host only</td><td><code>{ roomId, canManageParticipants?, canChangeSettings? }</code></td><td>room gets <code>co-host-permissions-changed</code>; a co-host can never grant itself more power</td></tr>
       </table>
     </div>
     <p>Legacy/simpler variants kept for compatibility: <code>mute-user</code> / <code>remove-user</code> (by <code>targetUserId</code>), <code>mute-all-users</code>.</p>
+
+    <h3 id="reactions">Raise hand / reactions</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event (client to server)</th><th>Payload</th><th>Broadcast to room as</th></tr>
+        <tr><td><code>raise-hand</code></td><td><code>{ roomId }</code></td><td><code>hand-raised: { socketId, userName, timestamp }</code></td></tr>
+        <tr><td><code>lower-hand</code></td><td><code>{ roomId, targetSocketId? }</code></td><td><code>hand-lowered: { socketId, timestamp }</code> - anyone can lower their own hand; lowering someone else's needs the host-controls tier above</td></tr>
+        <tr><td><code>send-reaction</code></td><td><code>{ roomId, emoji }</code> - must be one of 👍 👏 ❤️ 😂 🎉 👋, anything else is dropped</td><td><code>reaction-received: { socketId, userName, emoji, timestamp }</code></td></tr>
+      </table>
+    </div>
+
+    <h3 id="polls">Polls</h3>
+    <p>Single-choice, one per room at a time. Vote counts are broadcast to everyone; who voted for which option never is.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event (client to server)</th><th>Who</th><th>Payload</th><th>Broadcast to room as</th></tr>
+        <tr><td><code>create-poll</code></td><td>host/co-host</td><td><code>{ roomId, question, options }</code> (2-10 options)</td><td><code>poll-created: { id, question, options: [{ text, votes }], isOpen, totalVoters, createdBy }</code></td></tr>
+        <tr><td><code>vote-poll</code></td><td>anyone</td><td><code>{ roomId, optionIndex }</code> - re-voting replaces your previous choice</td><td><code>poll-updated</code>, same shape</td></tr>
+        <tr><td><code>close-poll</code></td><td>host/co-host</td><td><code>{ roomId }</code></td><td><code>poll-closed</code>, same shape, <code>isOpen: false</code></td></tr>
+      </table>
+    </div>
+    <p>A late joiner gets the currently active poll, if any, privately as <code>poll-created</code> right after joining.</p>
+
+    <h3 id="whiteboard">Whiteboard</h3>
+    <p>A shared drawing surface. Anyone can draw; clearing it needs the host-controls tier.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event (client to server)</th><th>Payload</th><th>Broadcast to room as</th></tr>
+        <tr><td><code>whiteboard-draw</code></td><td><code>{ roomId, x0, y0, x1, y1, color, width }</code> - coordinates are fractions (0-1) of the sender's own canvas, not pixels</td><td><code>whiteboard-draw</code>, same payload, to everyone else</td></tr>
+        <tr><td><code>whiteboard-clear</code></td><td>host/co-host - <code>{ roomId }</code></td><td><code>whiteboard-cleared: { by }</code></td></tr>
+      </table>
+    </div>
+    <p>A late joiner gets the whole stroke history so far, privately, as <code>whiteboard-state: [stroke, ...]</code>. The server caps stored strokes at 5000 per room, dropping the oldest ones past that.</p>
+
+    <h3 id="breakout-rooms">Breakout rooms</h3>
+    <p>Host-only (or co-host, if permitted). Each breakout room is a real room created the same way <code>POST /api/rooms</code> does - assigning someone just navigates their client to it, reusing the normal join flow rather than a separate mesh-management system. That also means a breakout room inherits the same "anyone with the link can join" trust model as any other room.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event (client to server)</th><th>Payload</th><th>Effect</th></tr>
+        <tr><td><code>create-breakout-rooms</code></td><td><code>{ roomId, count }</code> (2-20)</td><td>room gets <code>breakout-rooms-created: { rooms: [{ index, id, title }] }</code></td></tr>
+        <tr><td><code>assign-breakout</code></td><td><code>{ roomId, targetSocketId, breakoutIndex }</code></td><td>that socket gets <code>breakout-assigned: { breakoutRoomId, breakoutTitle, mainRoomId }</code></td></tr>
+        <tr><td><code>auto-assign-breakouts</code></td><td><code>{ roomId }</code></td><td>round-robins everyone else across the existing breakout rooms, each getting <code>breakout-assigned</code></td></tr>
+        <tr><td><code>close-breakout-rooms</code></td><td><code>{ roomId }</code></td><td>everyone in a breakout room gets <code>breakout-closed: { mainRoomId }</code>; room gets <code>breakout-rooms-closed</code> - doesn't move anyone back automatically</td></tr>
+      </table>
+    </div>
 
     <h3 id="captions">Live captions</h3>
     <p>Entirely client-side speech-to-text (the browser's own Web Speech API); the server only relays the resulting text to the room, it never sees or transcribes audio itself. Ephemeral - unlike chat, never stored.</p>

@@ -47,12 +47,17 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 - **Schedule for later**: optional date/time on a room, with one-click "Add to Google Calendar / Outlook" links and an `.ics` download, generated entirely client-side
 - **Raise hand, emoji reactions, and live captions** (browser speech-to-text, relayed to the room - no audio ever leaves the browser for it)
 - **Local recording**: record your own camera and mic straight to your device - no recording server involved (see [How it compares](#how-it-compares) for how this differs from server-side recording)
-- **Real-time chat** with rate limiting
+- **Real-time chat** with rate limiting, and small in-call file sharing (images preview inline, everything else is a download card)
+- **Live polls**: host/co-host asks a quick multiple-choice question, votes update live, only counts are shown (never who voted for what)
+- **Shared whiteboard**: a live drawing surface everyone in the room sees, resolution-independent so it looks right on any screen size
+- **Breakout rooms**: split participants into separate sub-rooms with one click; each is a real Rumo room under the hood, so it inherits the same join flow, chat, and controls as the main one
+- **Six meeting layouts**: grid, speaker, sidebar, spotlight, interview, and webinar, picked from a single layout menu
+- **Decluttered in-call UI**: a small control bar (reactions and raise-hand share one menu, less-used tools live under one "More"), a collapsible side panel, and host controls/breakout rooms tucked into their own "Host tools" panel instead of crowding the participant list for everyone
 - **Embeddable**: drop a meeting into your own site as an iframe, with a small JS API (`embed.js`) to control it and listen for events - see [`docs/EMBEDDING.md`](docs/EMBEDDING.md)
 - **Webhooks**: optional HMAC-signed POST requests for room/participant lifecycle events, for your own integrations
 - **Connection quality monitoring** and automatic reconnection
 - **Configurable branding**: change the name, logo, tagline, and accent color from an admin panel in the browser, or a JSON file - no rebuild required
-- **Feature flags**: turn off chat, screen sharing, co-hosts, or any other optional control for the whole instance from the admin panel
+- **Feature flags**: turn off chat, screen sharing, co-hosts, polls, whiteboard, breakout rooms, or any other optional control for the whole instance from the admin panel - including the admin panel's own visibility (on by default)
 - **Built-in i18n**: every UI string lives in one `lang.json`, add a language by adding a column
 - **One-command HTTPS**: point a domain at your server and the installer sets up a reverse proxy with automatic, auto-renewing certificates
 
@@ -68,6 +73,7 @@ Rumo is built for the opposite end of the spectrum from Jitsi Meet: instead of a
 | Media routing | Peer-to-peer WebRTC mesh; the server never sees your audio or video | SFU (Jitsi Videobridge) relays media through the server |
 | Best fit | Small, private meetings where simplicity, low footprint, and full control matter most | Larger meetings and webinars where scale matters more than footprint |
 | Branding & white-labeling | Full control from an admin panel, no rebuild: name, logo, color, and which features even show up | Configurable via `interface_config.js`, needs a rebuild to apply |
+| In-call controls | A handful of core buttons plus one "More" menu; host controls and breakout rooms live in their own panel, off by default for regular participants | Feature-rich toolbar, more icons visible at once |
 | Codebase | Small enough to read end to end in an afternoon | Large, mature, many moving parts |
 | Translations | 20 languages in one `lang.json` file, trivial to extend | Larger, more established translation project |
 | Recording | Local only: record your own camera+mic to your device, no server involved | Server-side, via Jibri, for the whole call |
@@ -99,7 +105,7 @@ Either way, once it's up:
 - Admin panel: `.../admin`, unlocked with the `ADMIN_SETUP_TOKEN` the script prints (also saved in `.env`) - use it to set the name, logo, tagline, and accent color without touching a file
 - Backend health check: `http://localhost:5000/health`
 
-The Postgres schema is applied automatically on first run.
+The Postgres schema is applied automatically on first run (Docker only initializes an empty data volume, so this doesn't rerun on an existing one). If you're upgrading an existing instance from before a given release added a column, apply the difference by hand, e.g. for the "hide the admin page" setting: `ALTER TABLE branding_settings ADD COLUMN IF NOT EXISTS admin_page_enabled BOOLEAN DEFAULT true;`.
 
 > Camera/microphone access requires HTTPS in the browser (Chrome and Firefox both block `getUserMedia` on plain HTTP), except on `localhost`. The `--domain` flag above handles this for you; without it, you'll need your own reverse proxy with a TLS certificate in front of `frontend`/`backend`, with `CORS_ORIGIN`, `VITE_API_URL`, and `VITE_SOCKET_URL` pointed at the public HTTPS URLs.
 
@@ -168,6 +174,12 @@ Anyone creating a room from the home page can, under "Advanced options," set a P
 
 To get notified about room/participant activity elsewhere (logging, chat-ops, your own dashboard), set `WEBHOOK_URL` in the backend's `.env` (and `WEBHOOK_SECRET` to have requests signed). Off by default - nothing is sent unless you set it.
 
+### Host tools, breakout rooms, and hiding the admin page
+
+Host and co-host controls (mute all, lock the room, disable cameras/screen share, co-host permissions) and breakout rooms both live behind a single "Host tools" button (shield icon) in the People tab, instead of sitting inline in the participant list where every attendee would see them. Breakout rooms are genuine Rumo rooms: assigning someone navigates their browser straight into one using the normal join flow, and a banner lets them return to the main room anytime - closing all breakout rooms doesn't move anyone back automatically, so give people a heads-up first.
+
+The admin panel at `/admin` can itself be turned off for casual visitors from inside the panel (Admin access → Admin page enabled, on by default). This is the same trust level as every other feature flag - a presentation-layer deterrent, not a lockout: the real gate is still the `ADMIN_SETUP_TOKEN` check on every save, so entering the correct token on the "disabled" screen always gets you back in even with the toggle off.
+
 ## How hosting works
 
 There are no user accounts. Whoever creates a room, or is first to join it, becomes its host for that session, and can transfer host, mute/remove participants, and lock the room. Anyone with the room link can join (optionally behind a PIN, see [Configuration](#configuration)) - that part is the same trust model as most link-based meeting tools.
@@ -231,7 +243,7 @@ rumo/
 - `helmet` sets standard security headers. Content-Security-Policy is left off by default because it's easy to break WebRTC/media/websocket connections with an overly strict one; if you enable it, test screen share, camera, and chat afterward.
 - No cookies or sessions are used (guest model, see [How hosting works](#how-hosting-works)), so `CORS_CREDENTIALS` defaults to `false`.
 - TLS is handled by the optional Caddy reverse proxy (`./install.sh --domain ...`) or your own proxy in front; the app itself doesn't terminate HTTPS.
-- The admin panel (`/admin`, `/api/settings/*`) is gated by `ADMIN_SETUP_TOKEN`, compared with a timing-safe check. Leave it unset to disable branding changes entirely.
+- The admin panel (`/admin`, `/api/settings/*`) is gated by `ADMIN_SETUP_TOKEN`, compared with a timing-safe check. Leave it unset to disable branding changes entirely. The "Admin page enabled" toggle in the panel only hides the form behind a lock screen for people without the token - it doesn't change what the token check itself allows.
 - `.env`/`.env.production` are gitignored everywhere in this repo. Never commit real credentials, and run `npm audit` in both `backend/` and `frontend/` before bumping dependencies.
 
 ## Contributing
