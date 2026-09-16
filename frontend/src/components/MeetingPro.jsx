@@ -2826,8 +2826,12 @@ const MeetingPro = () => {
       {/* Header - a real bar on mobile, but on desktop just a row of
           floating pills over the video (each with its own background)
           instead of one solid bar spanning the top edge and cutting into
-          the video underneath it. */}
-      <div className={`${isMobile ? 'sticky top-0' : 'absolute top-0 left-0 right-0'} z-50 ${isMobile ? headerClasses : ''} ${isMobile ? 'px-3 py-2.5' : 'px-4 py-3'} transition-opacity duration-300 ${!isMobile && !showControls ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+          the video underneath it. On desktop this is `position: absolute`,
+          which doesn't reserve layout space, so the sidebar panel (a normal
+          flex sibling below) starts at the same y=0 - stopping this at the
+          sidebar's left edge when it's open keeps it from floating on top
+          of the sidebar's own header row and its buttons. */}
+      <div className={`${isMobile ? 'sticky top-0' : `absolute top-0 left-0 ${sidebarOpen ? 'right-96' : 'right-0'}`} z-50 ${isMobile ? headerClasses : ''} ${isMobile ? 'px-3 py-2.5' : 'px-4 py-3'} transition-opacity duration-300 ${!isMobile && !showControls ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         <div className="flex items-center justify-between">
           {/* Logo */}
           <div className={`flex items-center gap-2 ${isMobile ? '' : `${roomInfoClasses} rounded-xl px-3 py-2 border`}`}>

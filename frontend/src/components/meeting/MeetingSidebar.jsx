@@ -426,8 +426,7 @@ const MeetingSidebar = ({
             className={`p-2 ${hoverClass} rounded-xl ${textSecondaryClass} hover:${textClass} transition-all duration-200 flex-shrink-0`}
             title="Collapse panel"
           >
-            <ChevronsRight size={20} className="hidden md:block" />
-            <X size={20} className="md:hidden" />
+            {isMobile ? <X size={20} /> : <ChevronsRight size={20} />}
           </button>
         </div>
         <div className={`flex gap-1 p-1 rounded-full ${isLight ? 'bg-gray-100' : 'bg-gray-800/60'}`}>
