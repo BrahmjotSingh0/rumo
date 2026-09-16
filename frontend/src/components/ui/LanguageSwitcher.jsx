@@ -1,4 +1,4 @@
-import { Globe } from 'lucide-react';
+import { IconWorld as Globe } from '@tabler/icons-react'
 import { useTranslation } from '../../i18n/I18nProvider';
 
 const LanguageSwitcher = ({ className = '' }) => {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Lock } from 'lucide-react';
+import { IconLock as Lock } from '@tabler/icons-react'
 import toast from 'react-hot-toast';
 import Button from './ui/Button';
 import Input from './ui/Input';

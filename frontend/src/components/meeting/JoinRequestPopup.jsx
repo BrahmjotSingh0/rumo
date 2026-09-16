@@ -1,4 +1,4 @@
-import { Check, X, Clock, User } from 'lucide-react'
+import { IconCheck as Check, IconX as X, IconClock as Clock, IconUser as User } from '@tabler/icons-react'
 import { useState } from 'react'
 
 const JoinRequestPopup = ({ request, onApprove, onReject, settings }) => {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Video, Link2, UserRound, ShieldCheck, Users, Globe, Radio, Lock, ChevronDown, ChevronUp, Calendar, Copy, Check } from 'lucide-react';
+import { IconVideo as Video, IconLink as Link2, IconUserCircle as UserRound, IconShieldCheck as ShieldCheck, IconUsers as Users, IconWorld as Globe, IconBroadcast as Radio, IconLock as Lock, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCalendar as Calendar, IconCopy as Copy, IconCheck as Check } from '@tabler/icons-react'
 import toast from 'react-hot-toast';
 import Button from './ui/Button';
 import Input from './ui/Input';

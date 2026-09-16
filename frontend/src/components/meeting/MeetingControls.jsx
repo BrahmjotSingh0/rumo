@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Mic, MicOff, Video, VideoOff, Monitor, Phone, Settings, Hand, Smile, Circle, Square, PenLine, MoreHorizontal, Link2 } from 'lucide-react'
+import { IconMicrophone as Mic, IconMicrophoneOff as MicOff, IconVideo as Video, IconVideoOff as VideoOff, IconDeviceDesktop as Monitor, IconPhone as Phone, IconSettings as Settings, IconHandStop as Hand, IconMoodSmile as Smile, IconCircle as Circle, IconSquare as Square, IconPencil as PenLine, IconDots as MoreHorizontal, IconLink as Link2 } from '@tabler/icons-react'
 import branding from '../../config/branding'
 
 const REACTION_EMOJI = ['👍', '👏', '❤️', '😂', '🎉', '👋']

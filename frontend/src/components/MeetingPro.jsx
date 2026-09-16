@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
-import { Grid3X3, User, X, Users, BriefcaseBusiness, Maximize2, PanelRight, Presentation } from 'lucide-react'
+import { IconLayoutGrid as Grid3X3, IconUser as User, IconX as X, IconUsers as Users, IconBriefcase as BriefcaseBusiness, IconMaximize as Maximize2, IconLayoutSidebarRight as PanelRight, IconPresentation as Presentation } from '@tabler/icons-react'
 import toast from 'react-hot-toast'
 import io from 'socket.io-client'
 import { SOCKET_URL, ICE_SERVERS } from '../utils/constants'
@@ -2823,11 +2823,14 @@ const MeetingPro = () => {
 
   return (
     <div className={`h-screen ${themeClasses} flex flex-col overflow-hidden`}>
-      {/* Header */}
-      <div className={`${isMobile ? 'sticky top-0' : 'absolute top-0 left-0 right-0'} z-50 ${headerClasses} ${isMobile ? 'px-3 py-2.5' : 'px-4 py-3'} transition-opacity duration-300 ${!isMobile && !showControls ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+      {/* Header - a real bar on mobile, but on desktop just a row of
+          floating pills over the video (each with its own background)
+          instead of one solid bar spanning the top edge and cutting into
+          the video underneath it. */}
+      <div className={`${isMobile ? 'sticky top-0' : 'absolute top-0 left-0 right-0'} z-50 ${isMobile ? headerClasses : ''} ${isMobile ? 'px-3 py-2.5' : 'px-4 py-3'} transition-opacity duration-300 ${!isMobile && !showControls ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         <div className="flex items-center justify-between">
           {/* Logo */}
-          <div className="flex items-center gap-2">
+          <div className={`flex items-center gap-2 ${isMobile ? '' : `${roomInfoClasses} rounded-xl px-3 py-2 border`}`}>
             <img
               src={branding.logoIcon}
               alt={branding.appName}

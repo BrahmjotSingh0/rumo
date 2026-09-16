@@ -60,6 +60,7 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 - **Feature flags**: turn off chat, screen sharing, co-hosts, polls, whiteboard, breakout rooms, or any other optional control for the whole instance from the admin panel - including the admin panel's own visibility (on by default)
 - **Built-in i18n**: every UI string lives in one `lang.json`, add a language by adding a column
 - **One-command HTTPS**: point a domain at your server and the installer sets up a reverse proxy with automatic, auto-renewing certificates
+- **Installable**: add it to your home screen/dock as a PWA - the app shell installs and updates itself, the API and Socket.IO connection are always live (nothing meeting-related is cached for offline use)
 
 ## How it compares
 

@@ -1,4 +1,4 @@
-import { MicOff, Mic, MessageSquare, MessageSquareOff, Lock, Unlock, VideoOff, MonitorOff, MonitorCheck, DoorClosed, DoorOpen, Settings, ChevronDown, ChevronUp, Shield } from 'lucide-react'
+import { IconMicrophoneOff as MicOff, IconMicrophone as Mic, IconMessage as MessageSquare, IconMessageOff as MessageSquareOff, IconLock as Lock, IconLockOpen as Unlock, IconVideoOff as VideoOff, IconDeviceDesktopOff as MonitorOff, IconDeviceDesktopCheck as MonitorCheck, IconDoorOff as DoorClosed, IconDoor as DoorOpen, IconSettings as Settings, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconShield as Shield } from '@tabler/icons-react'
 import { useState } from 'react'
 
 const HostSettings = ({

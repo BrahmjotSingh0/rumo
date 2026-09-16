@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Mic, MicOff, Video, VideoOff, Settings, Lock } from 'lucide-react'
+import { IconMicrophone as Mic, IconMicrophoneOff as MicOff, IconVideo as Video, IconVideoOff as VideoOff, IconSettings as Settings, IconLock as Lock } from '@tabler/icons-react'
 import toast from 'react-hot-toast'
 import branding from '../config/branding'
 import { useTranslation } from '../i18n/I18nProvider'

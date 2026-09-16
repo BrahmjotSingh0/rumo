@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
-import { Mic, MicOff, VideoOff, Monitor, Pin, Hand } from 'lucide-react'
+import { IconMicrophone as Mic, IconMicrophoneOff as MicOff, IconVideoOff as VideoOff, IconDeviceDesktop as Monitor, IconPin as Pin, IconHandStop as Hand } from '@tabler/icons-react'
 
 // Video tiles below attach streams via inline ref callbacks so they update
 // as soon as a tile mounts, not just on the next effect pass. Those inline

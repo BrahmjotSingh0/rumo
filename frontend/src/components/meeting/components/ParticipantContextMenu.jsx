@@ -1,4 +1,4 @@
-import { MicOff, VideoOff, Monitor, Crown, UserX, Shield } from 'lucide-react'
+import { IconMicrophoneOff as MicOff, IconVideoOff as VideoOff, IconDeviceDesktop as Monitor, IconCrown as Crown, IconUserX as UserX, IconShield as Shield } from '@tabler/icons-react'
 import { useEffect, useRef } from 'react'
 
 const ParticipantContextMenu = ({ 

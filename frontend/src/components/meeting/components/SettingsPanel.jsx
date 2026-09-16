@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Settings, X, Monitor, Palette, Layout, Volume2, Video, Eye, RotateCcw, Upload, Ban } from 'lucide-react'
+import { IconSettings as Settings, IconX as X, IconDeviceDesktop as Monitor, IconPalette as Palette, IconLayout as Layout, IconVolume as Volume2, IconVideo as Video, IconEye as Eye, IconRotateClockwise2 as RotateCcw, IconUpload as Upload, IconBan as Ban } from '@tabler/icons-react'
 import branding from '../../../config/branding'
 
 const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings }) => {

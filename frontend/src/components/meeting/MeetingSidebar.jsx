@@ -1,4 +1,4 @@
-import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical, Hand, BarChart3, Plus, Trash2, Paperclip, FileText, Download, Send, ChevronsRight } from 'lucide-react'
+import { IconMicrophone as Mic, IconMicrophoneOff as MicOff, IconVideo as Video, IconVideoOff as VideoOff, IconUsers as Users, IconMessageCircle as MessageCircle, IconX as X, IconCrown as Crown, IconShield as Shield, IconDotsVertical as MoreVertical, IconHandStop as Hand, IconChartBar as BarChart3, IconPlus as Plus, IconTrash as Trash2, IconPaperclip as Paperclip, IconFileText as FileText, IconDownload as Download, IconSend as Send, IconChevronsRight as ChevronsRight } from '@tabler/icons-react'
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import ParticipantContextMenu from './components/ParticipantContextMenu'

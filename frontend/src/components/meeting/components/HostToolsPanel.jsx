@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom'
-import { X, Shield, DoorOpen, Info } from 'lucide-react'
+import { IconX as X, IconShield as Shield, IconDoor as DoorOpen, IconInfoCircle as Info } from '@tabler/icons-react'
 import HostSettings from './HostSettings'
 
 // Host Controls and Breakout Rooms both live here instead of sitting inline

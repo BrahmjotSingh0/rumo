@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Trash2, Eraser } from 'lucide-react'
+import { IconX as X, IconTrash as Trash2, IconEraser as Eraser } from '@tabler/icons-react'
 
 const COLORS = ['#ffffff', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7']
 
