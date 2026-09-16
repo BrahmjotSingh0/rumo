@@ -75,6 +75,56 @@ function loadBackgroundImage(url) {
   })
 }
 
+// BodyPix's mask is binary (0/1 per pixel) - compositing on that directly
+// gives a hard, jagged, blocky edge around the person (exactly the bad cutout
+// look this feathering exists to fix). These turn it into a smooth alpha by
+// box-blurring the mask a few passes, which approximates a gaussian feather
+// cheaply via a sliding-window sum (cost per row/column is independent of
+// the blur radius).
+function boxBlurHorizontal(src, dst, width, height, radius) {
+  const windowSize = radius * 2 + 1
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * width
+    let sum = 0
+    for (let k = -radius; k <= radius; k++) {
+      sum += src[rowStart + Math.min(width - 1, Math.max(0, k))]
+    }
+    for (let x = 0; x < width; x++) {
+      dst[rowStart + x] = sum / windowSize
+      const addX = Math.min(width - 1, x + radius + 1)
+      const removeX = Math.max(0, x - radius)
+      sum += src[rowStart + addX] - src[rowStart + removeX]
+    }
+  }
+}
+
+function boxBlurVertical(src, dst, width, height, radius) {
+  const windowSize = radius * 2 + 1
+  for (let x = 0; x < width; x++) {
+    let sum = 0
+    for (let k = -radius; k <= radius; k++) {
+      sum += src[Math.min(height - 1, Math.max(0, k)) * width + x]
+    }
+    for (let y = 0; y < height; y++) {
+      dst[y * width + x] = sum / windowSize
+      const addY = Math.min(height - 1, y + radius + 1)
+      const removeY = Math.max(0, y - radius)
+      sum += src[addY * width + x] - src[removeY * width + x]
+    }
+  }
+}
+
+// Mutates `mask` (a Float32Array of 0-255 values) in place. Two full box-blur
+// passes (each a horizontal + vertical pair) approximates a gaussian feather
+// well enough for this without needing a real gaussian kernel.
+function featherMask(mask, width, height, radius) {
+  const temp = new Float32Array(mask.length)
+  boxBlurHorizontal(mask, temp, width, height, radius)
+  boxBlurVertical(temp, mask, width, height, radius)
+  boxBlurHorizontal(mask, temp, width, height, radius)
+  boxBlurVertical(temp, mask, width, height, radius)
+}
+
 /**
  * Draws `image` into `ctx` covering the full width/height (like CSS
  * `background-size: cover`), cropping instead of stretching.
@@ -119,12 +169,14 @@ export class BackgroundBlurProcessor {
     this.net = null
     this.segmentationConfig = {
       flipHorizontal: false,
-      internalResolution: 'medium', // 'low', 'medium', 'high'
+      internalResolution: 'high', // 'low', 'medium', 'high' - higher gives a more accurate mask boundary before feathering
       segmentationThreshold: 0.7,
       maxDetections: 1,
       scoreThreshold: 0.2,
       nmsRadius: 20
     }
+    this.featherRadius = 6 // px, at the mask's own resolution (= canvas size)
+    this.maskBuffer = null
   }
 
   /**
@@ -189,24 +241,35 @@ export class BackgroundBlurProcessor {
       const originalData = this.ctx.getImageData(0, 0, width, height)
       const blurredData = this.tempCtx.getImageData(0, 0, width, height)
       const maskData = segmentation.data
+      const pixelCount = width * height
 
-      // Composite: person (sharp) + background (blurred or replacement image)
+      // Turn the binary per-pixel mask into a soft alpha (see featherMask
+      // above) so the composite below blends smoothly across the person's
+      // outline instead of a hard, jagged, one-pixel-wide cutoff.
+      if (!this.maskBuffer || this.maskBuffer.length !== pixelCount) {
+        this.maskBuffer = new Float32Array(pixelCount)
+      }
+      for (let i = 0; i < pixelCount; i++) {
+        this.maskBuffer[i] = maskData[i] === 1 ? 255 : 0
+      }
+      featherMask(this.maskBuffer, width, height, this.featherRadius)
+
+      // Composite: person (sharp) blended with background (blurred or
+      // replacement image) proportionally to how "person-ish" the feathered
+      // mask says this pixel is.
       const output = originalData.data
       const blurred = blurredData.data
 
-      for (let i = 0; i < maskData.length; i++) {
-        const isPerson = maskData[i] === 1
+      for (let i = 0; i < pixelCount; i++) {
+        const alpha = this.maskBuffer[i] / 255
+        if (alpha >= 1) continue // fully person - original is already sharp there
         const idx = i * 4
-
-        if (!isPerson) {
-          // Background - use blurred/replacement version
-          output[idx] = blurred[idx]
-          output[idx + 1] = blurred[idx + 1]
-          output[idx + 2] = blurred[idx + 2]
-        }
-        // Person pixels stay sharp (already drawn)
+        const bgWeight = 1 - alpha
+        output[idx] = output[idx] * alpha + blurred[idx] * bgWeight
+        output[idx + 1] = output[idx + 1] * alpha + blurred[idx + 1] * bgWeight
+        output[idx + 2] = output[idx + 2] * alpha + blurred[idx + 2] * bgWeight
       }
-      
+
       this.ctx.putImageData(originalData, 0, 0)
       
     } catch (error) {
@@ -301,15 +364,19 @@ export class SimpleBackgroundBlurProcessor {
   }
 
   /**
-   * Process frame with center-based blur
-   * Uses clipping path to keep center sharp, blur edges
+   * Process frame with center-based blur. Blends the sharp video with the
+   * blurred/replacement background using the soft elliptical alpha from
+   * createMask() above, instead of a hard clip() - a fixed clip path was
+   * giving this fallback the same jagged-edge look the real segmentation
+   * path had before it got feathering, just around a plain oval instead of
+   * an actual person outline.
    */
   processFrame() {
     if (!this.isProcessing || !this.videoElement) return
-    
+
     const width = this.canvas.width
     const height = this.canvas.height
-    
+
     try {
       // 1. Fill the background layer: chosen image (cover-fit) if one
       // loaded, otherwise a blurred copy of the video.
@@ -321,36 +388,40 @@ export class SimpleBackgroundBlurProcessor {
         this.blurCtx.filter = 'none'
       }
 
-      // 2. Start with that background layer on the main canvas
-      this.ctx.clearRect(0, 0, width, height)
-      this.ctx.drawImage(this.blurCanvas, 0, 0)
-      
-      // 3. Draw sharp ellipse in center (where person usually is)
-      const centerX = width / 2
-      const centerY = height / 2.2 // Slightly higher (head is usually higher)
-      const radiusX = width * 0.28
-      const radiusY = height * 0.42
-      
-      this.ctx.save()
-      
-      // Create elliptical clipping path
-      this.ctx.beginPath()
-      this.ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI)
-      this.ctx.closePath()
-      this.ctx.clip()
-      
-      // Draw sharp video only in clipped area
+      // 2. Sharp video, full frame, onto the main canvas
       this.ctx.drawImage(this.videoElement, 0, 0, width, height)
-      
-      this.ctx.restore()
-      
+
+      // 3. The mask is the same every frame for a given size, so build it
+      // once and reuse it instead of recomputing a per-pixel gradient 30
+      // times a second.
+      if (!this.mask || this.mask.width !== width || this.mask.height !== height) {
+        this.mask = this.createMask(width, height)
+      }
+
+      const originalData = this.ctx.getImageData(0, 0, width, height)
+      const blurredData = this.blurCtx.getImageData(0, 0, width, height)
+      const output = originalData.data
+      const blurred = blurredData.data
+      const maskAlpha = this.mask.data
+
+      for (let i = 0; i < output.length; i += 4) {
+        const alpha = maskAlpha[i + 3] / 255
+        if (alpha >= 1) continue
+        const bgWeight = 1 - alpha
+        output[i] = output[i] * alpha + blurred[i] * bgWeight
+        output[i + 1] = output[i + 1] * alpha + blurred[i + 1] * bgWeight
+        output[i + 2] = output[i + 2] * alpha + blurred[i + 2] * bgWeight
+      }
+
+      this.ctx.putImageData(originalData, 0, 0)
+
     } catch (error) {
       console.error('Simple blur error:', error)
       // Fallback: show original video
       this.ctx.clearRect(0, 0, width, height)
       this.ctx.drawImage(this.videoElement, 0, 0, width, height)
     }
-    
+
     this.animationFrame = requestAnimationFrame(() => this.processFrame())
   }
 
