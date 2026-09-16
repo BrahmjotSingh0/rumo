@@ -20,7 +20,11 @@ const FEATURE_DEFAULTS = {
   raiseHand: true,
   reactions: true,
   liveCaptions: true,
-  localRecording: true
+  localRecording: true,
+  polls: true,
+  fileSharing: true,
+  whiteboard: true,
+  breakoutRooms: true
 };
 
 function withFeatureDefaults(features) {

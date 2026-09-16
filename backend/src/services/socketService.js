@@ -12,6 +12,7 @@ class SocketService {
     this.rooms = new Map(); // roomId -> room data
     this.waitingParticipants = new Map(); // socketId -> waiting participant data
     this.connectionStats = new Map(); // socketId -> stats
+    this.polls = new Map(); // roomId -> current poll (one at a time, null/absent if none)
   }
 
   initialize(io) {
@@ -115,6 +116,11 @@ class SocketService {
     socket.on('lower-hand', (data) => this.handleLowerHand(socket, data));
     socket.on('send-reaction', (data) => this.handleSendReaction(socket, data));
     socket.on('send-caption', (data) => this.handleSendCaption(socket, data));
+
+    // Polls
+    socket.on('create-poll', (data) => this.handleCreatePoll(socket, data));
+    socket.on('vote-poll', (data) => this.handleVotePoll(socket, data));
+    socket.on('close-poll', (data) => this.handleClosePoll(socket, data));
 
     // Private room waiting room
     socket.on('request-join', (data) => this.handleJoinRequest(socket, data));
@@ -298,6 +304,12 @@ class SocketService {
 
       // Send current room settings to the new participant
       socket.emit('room-settings', roomSettings);
+
+      // Send the active poll, if any, so a mid-poll joiner sees it immediately
+      const activePoll = this.polls.get(roomId);
+      if (activePoll) {
+        socket.emit('poll-created', this.serializePoll(activePoll));
+      }
 
       // Tell the joining client their own host status - this is the only
       // place a client learns whether it's host, since there's no account
@@ -1219,6 +1231,99 @@ class SocketService {
       });
     } catch (error) {
       logger.error('Error sending caption:', error);
+    }
+  }
+
+  // Sends vote counts, never who voted for what - participants can see the
+  // poll is live and how it's trending without their individual choice being
+  // broadcast to everyone else in the room.
+  serializePoll(poll) {
+    return {
+      id: poll.id,
+      question: poll.question,
+      options: poll.options.map(o => ({ text: o.text, votes: o.votes.size })),
+      isOpen: poll.isOpen,
+      totalVoters: new Set(poll.options.flatMap(o => Array.from(o.votes))).size,
+      createdBy: poll.createdBy
+    };
+  }
+
+  handleCreatePoll(socket, { roomId, question, options }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to create a poll' });
+        return;
+      }
+
+      const cleanQuestion = String(question || '').trim().slice(0, 300);
+      const cleanOptions = Array.isArray(options)
+        ? options.map(o => String(o || '').trim().slice(0, 150)).filter(Boolean).slice(0, 10)
+        : [];
+
+      if (!cleanQuestion || cleanOptions.length < 2) {
+        socket.emit('error', { message: 'A poll needs a question and at least 2 options' });
+        return;
+      }
+
+      const poll = {
+        id: uuidv4(),
+        question: cleanQuestion,
+        options: cleanOptions.map(text => ({ text, votes: new Set() })),
+        isOpen: true,
+        createdBy: host.name
+      };
+      this.polls.set(roomId, poll);
+
+      this.io.to(roomId).emit('poll-created', this.serializePoll(poll));
+      logger.info(`${host.name} created a poll in room ${roomId}`);
+    } catch (error) {
+      logger.error('Error creating poll:', error);
+      socket.emit('error', { message: 'Failed to create poll' });
+    }
+  }
+
+  handleVotePoll(socket, { roomId, optionIndex }) {
+    try {
+      const user = this.users.get(socket.id);
+      if (!user) return;
+
+      const poll = this.polls.get(roomId);
+      if (!poll || !poll.isOpen) {
+        socket.emit('error', { message: 'There is no open poll to vote in' });
+        return;
+      }
+      if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= poll.options.length) {
+        return;
+      }
+
+      // Single-choice: clear any previous vote from this socket first.
+      poll.options.forEach(o => o.votes.delete(socket.id));
+      poll.options[optionIndex].votes.add(socket.id);
+
+      this.io.to(roomId).emit('poll-updated', this.serializePoll(poll));
+    } catch (error) {
+      logger.error('Error voting in poll:', error);
+    }
+  }
+
+  handleClosePoll(socket, { roomId }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to close the poll' });
+        return;
+      }
+
+      const poll = this.polls.get(roomId);
+      if (!poll) return;
+
+      poll.isOpen = false;
+      this.io.to(roomId).emit('poll-closed', this.serializePoll(poll));
+      logger.info(`${host.name} closed the poll in room ${roomId}`);
+    } catch (error) {
+      logger.error('Error closing poll:', error);
+      socket.emit('error', { message: 'Failed to close poll' });
     }
   }
 

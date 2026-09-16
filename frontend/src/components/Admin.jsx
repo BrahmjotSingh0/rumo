@@ -33,6 +33,10 @@ const FEATURE_LABELS = [
   { key: 'reactions', label: 'Reactions', description: 'Emoji reactions during a call' },
   { key: 'liveCaptions', label: 'Live captions', description: 'Browser-only speech-to-text, shared with the room' },
   { key: 'localRecording', label: 'Local recording', description: 'Let participants record their own camera & mic to their device' },
+  { key: 'polls', label: 'Polls', description: 'Host/co-host can create a quick multiple-choice poll' },
+  { key: 'fileSharing', label: 'File sharing', description: 'Share small files in chat' },
+  { key: 'whiteboard', label: 'Whiteboard', description: 'A shared drawing surface, synced live to everyone in the room' },
+  { key: 'breakoutRooms', label: 'Breakout rooms', description: 'Host can split participants into separate sub-rooms' },
 ];
 
 const Admin = () => {

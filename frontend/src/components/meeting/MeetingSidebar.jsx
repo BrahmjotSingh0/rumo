@@ -1,4 +1,4 @@
-import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical, Hand } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical, Hand, BarChart3, Plus, Trash2 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import ParticipantContextMenu from './components/ParticipantContextMenu'
@@ -28,6 +28,11 @@ const MeetingSidebar = ({
 }) => {
   const [contextMenu, setContextMenu] = useState(null)
   const menuOpeningRef = useRef(false)
+  const [poll, setPoll] = useState(null)
+  const [myVote, setMyVote] = useState(null)
+  const [showCreatePoll, setShowCreatePoll] = useState(false)
+  const [pollQuestion, setPollQuestion] = useState('')
+  const [pollOptions, setPollOptions] = useState(['', ''])
   const [roomSettings, setRoomSettings] = useState({
     allowChat: true,
     isPrivate: false,
@@ -98,6 +103,15 @@ const MeetingSidebar = ({
       setRoomSettings(prev => ({ ...prev, coHostsCanManageParticipants, coHostsCanChangeSettings }))
     }
 
+    const handlePollCreated = (newPoll) => {
+      setPoll(prev => {
+        if (!prev || prev.id !== newPoll.id) setMyVote(null)
+        return newPoll
+      })
+    }
+    const handlePollUpdated = (updatedPoll) => setPoll(updatedPoll)
+    const handlePollClosed = (closedPoll) => setPoll(closedPoll)
+
     socket.on('chat-status-changed', handleChatStatusChanged)
     socket.on('room-type-changed', handleRoomTypeChanged)
     socket.on('room-settings', handleRoomSettings)
@@ -108,6 +122,9 @@ const MeetingSidebar = ({
     socket.on('self-unmute-permission-changed', handleSelfUnmutePermissionChanged)
     socket.on('participant-screenshare-permission-changed', handleParticipantScreenSharePermissionChanged)
     socket.on('co-host-permissions-changed', handleCoHostPermissionsChanged)
+    socket.on('poll-created', handlePollCreated)
+    socket.on('poll-updated', handlePollUpdated)
+    socket.on('poll-closed', handlePollClosed)
 
     return () => {
       socket.off('chat-status-changed', handleChatStatusChanged)
@@ -120,6 +137,9 @@ const MeetingSidebar = ({
       socket.off('self-unmute-permission-changed', handleSelfUnmutePermissionChanged)
       socket.off('participant-screenshare-permission-changed', handleParticipantScreenSharePermissionChanged)
       socket.off('co-host-permissions-changed', handleCoHostPermissionsChanged)
+      socket.off('poll-created', handlePollCreated)
+      socket.off('poll-updated', handlePollUpdated)
+      socket.off('poll-closed', handlePollClosed)
     }
   }, [socket])
 
@@ -286,6 +306,40 @@ const MeetingSidebar = ({
     }
   }
 
+  // Poll actions
+  const canManagePoll = isHost || (userRole === 'co-host' && roomSettings.coHostsCanChangeSettings)
+
+  const updatePollOption = (index, value) => {
+    setPollOptions(prev => prev.map((o, i) => (i === index ? value : o)))
+  }
+
+  const addPollOption = () => {
+    if (pollOptions.length < 10) setPollOptions(prev => [...prev, ''])
+  }
+
+  const removePollOption = (index) => {
+    if (pollOptions.length > 2) setPollOptions(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const submitPoll = () => {
+    const cleanOptions = pollOptions.map(o => o.trim()).filter(Boolean)
+    if (!pollQuestion.trim() || cleanOptions.length < 2 || !socket) return
+    socket.emit('create-poll', { roomId, question: pollQuestion.trim(), options: cleanOptions })
+    setPollQuestion('')
+    setPollOptions(['', ''])
+    setShowCreatePoll(false)
+  }
+
+  const votePoll = (index) => {
+    if (!socket || !poll?.isOpen) return
+    setMyVote(index)
+    socket.emit('vote-poll', { roomId, optionIndex: index })
+  }
+
+  const closePoll = () => {
+    if (socket) socket.emit('close-poll', { roomId })
+  }
+
   if (!sidebarOpen) return null
 
   const isLight = settings?.theme === 'light'
@@ -343,12 +397,133 @@ const MeetingSidebar = ({
               Chat
             </button>
           )}
+          {branding.features.polls && (
+            <button
+              onClick={() => setActiveTab('polls')}
+              className={`relative flex-1 py-3 px-4 text-sm font-medium rounded-xl transition-all duration-200 ${
+                activeTab === 'polls'
+                  ? `${activeTabClass} shadow-lg`
+                  : inactiveTabClass
+              }`}
+            >
+              <BarChart3 size={14} className="inline mr-2" />
+              Polls
+              {poll?.isOpen && activeTab !== 'polls' && (
+                <span className="absolute top-1.5 right-2 w-2 h-2 bg-red-500 rounded-full" />
+              )}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Sidebar Content */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'participants' ? (
+        {activeTab === 'polls' ? (
+          <div className="p-4 space-y-4 overflow-y-auto h-full">
+            {canManagePoll && (
+              <div className={`${itemBgClass} rounded-lg p-3`}>
+                {showCreatePoll ? (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={pollQuestion}
+                      onChange={(e) => setPollQuestion(e.target.value)}
+                      placeholder="Ask a question..."
+                      maxLength={300}
+                      className={`w-full ${inputBgClass} ${textClass} px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                    />
+                    {pollOptions.map((option, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={option}
+                          onChange={(e) => updatePollOption(index, e.target.value)}
+                          placeholder={`Option ${index + 1}`}
+                          maxLength={150}
+                          className={`flex-1 ${inputBgClass} ${textClass} px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                        />
+                        {pollOptions.length > 2 && (
+                          <button onClick={() => removePollOption(index)} className={`p-1.5 ${hoverClass} rounded-lg ${textSecondaryClass}`}>
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      {pollOptions.length < 10 ? (
+                        <button onClick={addPollOption} className={`text-xs flex items-center gap-1 ${textSecondaryClass} hover:${textClass}`}>
+                          <Plus size={14} /> Add option
+                        </button>
+                      ) : <span />}
+                      <div className="flex gap-2">
+                        <button onClick={() => setShowCreatePoll(false)} className={`px-3 py-1.5 text-xs rounded-lg ${hoverClass} ${textSecondaryClass}`}>
+                          Cancel
+                        </button>
+                        <button onClick={submitPoll} className={`px-3 py-1.5 text-xs rounded-lg ${buttonBgClass} hover:bg-blue-700 text-white font-medium`}>
+                          Start poll
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowCreatePoll(true)}
+                    disabled={poll?.isOpen}
+                    className={`w-full py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 ${
+                      poll?.isOpen ? 'opacity-50 cursor-not-allowed' : `${buttonBgClass} hover:bg-blue-700`
+                    } text-white`}
+                  >
+                    <Plus size={16} /> {poll?.isOpen ? 'A poll is already open' : 'New poll'}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {poll ? (
+              <div className={`${itemBgClass} rounded-lg p-4`}>
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <p className={`${textClass} font-medium text-sm`}>{poll.question}</p>
+                  {!poll.isOpen && <span className={`text-xs ${textSecondaryClass} flex-shrink-0`}>Closed</span>}
+                </div>
+                <div className="space-y-2">
+                  {poll.options.map((option, index) => {
+                    const totalVotes = poll.options.reduce((sum, o) => sum + o.votes, 0)
+                    const pct = totalVotes > 0 ? Math.round((option.votes / totalVotes) * 100) : 0
+                    const isMine = myVote === index
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => votePoll(index)}
+                        disabled={!poll.isOpen}
+                        className={`relative w-full text-left rounded-lg overflow-hidden border ${isMine ? 'border-blue-500' : borderClass} ${!poll.isOpen ? 'cursor-default' : 'cursor-pointer'}`}
+                      >
+                        <div
+                          className={`absolute inset-y-0 left-0 ${isMine ? 'bg-blue-500/30' : isLight ? 'bg-gray-200' : 'bg-gray-600/40'} transition-all duration-300`}
+                          style={{ width: `${pct}%` }}
+                        />
+                        <div className="relative px-3 py-2 flex items-center justify-between gap-2">
+                          <span className={`${textClass} text-sm truncate`}>{option.text}</span>
+                          <span className={`${textSecondaryClass} text-xs flex-shrink-0`}>{option.votes} · {pct}%</span>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className={`${textSecondaryClass} text-xs mt-3`}>{poll.totalVoters} voted{poll.createdBy ? ` · started by ${poll.createdBy}` : ''}</p>
+                {canManagePoll && poll.isOpen && (
+                  <button onClick={closePoll} className={`mt-3 text-xs ${textSecondaryClass} hover:${textClass} underline`}>
+                    Close poll
+                  </button>
+                )}
+              </div>
+            ) : !canManagePoll && (
+              <div className="text-center py-8">
+                <BarChart3 size={24} className={`${textSecondaryClass} mx-auto mb-2`} />
+                <p className={`${textSecondaryClass} text-sm`}>No poll yet</p>
+              </div>
+            )}
+          </div>
+        ) : activeTab === 'participants' ? (
           <div className="p-4 space-y-3 overflow-y-auto h-full">
             {/* Host Settings - host always, co-host only if the host has granted it */}
             {(isHost || (userRole === 'co-host' && roomSettings.coHostsCanChangeSettings)) && (
