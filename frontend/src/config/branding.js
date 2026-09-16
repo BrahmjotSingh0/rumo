@@ -32,6 +32,7 @@ export const DEFAULT_FEATURES = {
   fileSharing: true,
   whiteboard: true,
   breakoutRooms: true,
+  hostControls: true,
 };
 
 const branding = {
@@ -52,6 +53,7 @@ const branding = {
   // the backend only (not branding.json) since they involve server state.
   features: { ...DEFAULT_FEATURES },
   backgroundPresets: [],
+  adminPageEnabled: true,
 };
 
 // Logos uploaded through the admin panel are served by the backend, so they
@@ -87,6 +89,7 @@ export async function loadBranding() {
       }
       // These come back with defaults applied regardless of `configured`.
       if (data.features) branding.features = data.features;
+      if (data.adminPageEnabled !== undefined) branding.adminPageEnabled = data.adminPageEnabled;
       if (data.backgroundPresets) {
         branding.backgroundPresets = data.backgroundPresets.map((preset) => ({
           ...preset,

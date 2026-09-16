@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Button from './ui/Button';
 import Input from './ui/Input';
@@ -55,7 +56,12 @@ const Admin = () => {
     logoIcon: branding.logoIcon,
     logoFull: branding.logoFull,
     features: { ...branding.features },
+    adminPageEnabled: branding.adminPageEnabled !== false,
   });
+  // The disabled state is only a presentational deterrent (see the schema
+  // comment on admin_page_enabled) - the real gate is still the token check
+  // on every write below, so typing the right token here always gets back in.
+  const [unlocked, setUnlocked] = useState(branding.adminPageEnabled !== false);
   const [backgroundPresets, setBackgroundPresets] = useState(branding.backgroundPresets);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState('');
@@ -196,6 +202,44 @@ const Admin = () => {
     }
   };
 
+  if (!unlocked) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+        <div className="max-w-sm w-full bg-gray-800/50 border border-gray-700 rounded-2xl p-6 sm:p-8 text-center space-y-4">
+          <div className="w-12 h-12 rounded-xl bg-gray-700/60 flex items-center justify-center mx-auto">
+            <Lock className="text-gray-300" size={22} />
+          </div>
+          <h1 className="text-lg font-semibold text-white">Admin panel disabled</h1>
+          <p className="text-sm text-gray-400">
+            The operator of this instance turned off this page for casual visitors. If that&apos;s you, enter your
+            admin token to get back in.
+          </p>
+          <Input
+            type="password"
+            placeholder="Admin token"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+          <Button
+            onClick={() => {
+              if (!token.trim()) {
+                toast.error('Enter your admin token first.');
+                return;
+              }
+              setUnlocked(true);
+            }}
+            className="w-full"
+          >
+            Unlock
+          </Button>
+          <Link to="/" className="block text-sm text-gray-500 hover:text-gray-300">
+            Back to app
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-900 px-4 py-6 sm:px-6 sm:py-10">
       <div className="max-w-2xl mx-auto">
@@ -294,6 +338,30 @@ const Admin = () => {
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-gray-700">
+            <h2 className="text-lg font-semibold text-white mb-1">Admin access</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              Hides this page behind a lock screen for anyone who doesn't have the admin token below. It's a
+              deterrent, not a replacement for the token check - saving still always requires it.
+            </p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-white">Admin page enabled</p>
+                <p className="text-xs text-gray-400">Turn off to hide the form from casual visitors</p>
+              </div>
+              <button
+                onClick={() => update('adminPageEnabled', !form.adminPageEnabled)}
+                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                  form.adminPageEnabled ? 'bg-primary-600' : 'bg-gray-600'
+                }`}
+              >
+                <div className={`absolute w-5 h-5 bg-white rounded-full top-0.5 transition-transform ${
+                  form.adminPageEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                }`} />
+              </button>
             </div>
           </div>
 

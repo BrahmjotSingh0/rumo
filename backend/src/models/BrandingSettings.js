@@ -1,6 +1,6 @@
 const database = require('../config/database');
 
-const FIELDS = ['app_name', 'tagline', 'description', 'logo_icon', 'logo_full', 'primary_color', 'features', 'background_presets'];
+const FIELDS = ['app_name', 'tagline', 'description', 'logo_icon', 'logo_full', 'primary_color', 'features', 'background_presets', 'admin_page_enabled'];
 const JSON_FIELDS = ['features', 'background_presets'];
 
 class BrandingSettings {

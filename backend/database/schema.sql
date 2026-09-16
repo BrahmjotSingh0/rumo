@@ -143,6 +143,12 @@ CREATE TABLE "branding_settings" (
     -- admin-managed virtual background choices offered to every participant,
     -- in addition to whatever they upload for themselves in a given call.
     "background_presets" JSONB,
+    -- Hides the /admin route's form behind a "disabled" screen for anyone who
+    -- doesn't also know ADMIN_SETUP_TOKEN. Same trust level as "features"
+    -- above: a presentation-layer deterrent, not the actual security boundary
+    -- (that's still the token check on every write in routes/settings.js) -
+    -- so there's no lockout risk in turning it off.
+    "admin_page_enabled" BOOLEAN DEFAULT true,
     "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "branding_settings_single_row" CHECK ("id" = 1)
 );

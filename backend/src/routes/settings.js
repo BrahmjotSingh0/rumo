@@ -74,6 +74,7 @@ function serializeBranding(row) {
     primaryColor: row.primary_color,
     features: withFeatureDefaults(row.features),
     backgroundPresets: row.background_presets || [],
+    adminPageEnabled: row.admin_page_enabled !== false,
     updatedAt: row.updated_at
   };
 }
@@ -82,7 +83,7 @@ function serializeBranding(row) {
 router.get('/branding', async (req, res) => {
   try {
     const row = await BrandingSettings.get();
-    res.json(row ? serializeBranding(row) : { configured: false, features: FEATURE_DEFAULTS, backgroundPresets: [] });
+    res.json(row ? serializeBranding(row) : { configured: false, features: FEATURE_DEFAULTS, backgroundPresets: [], adminPageEnabled: true });
   } catch (error) {
     logger.error('Error fetching branding settings:', error);
     res.status(500).json({ error: 'Failed to fetch branding settings' });
@@ -96,7 +97,8 @@ router.put('/branding', requireAdminToken, [
   body('logoIcon').optional({ nullable: true }).isLength({ max: 500 }).trim(),
   body('logoFull').optional({ nullable: true }).isLength({ max: 500 }).trim(),
   body('primaryColor').optional().matches(/^#[0-9a-fA-F]{6}$/).withMessage('primaryColor must be a hex color like #2E5BFF'),
-  body('features').optional().isObject().withMessage('features must be an object')
+  body('features').optional().isObject().withMessage('features must be an object'),
+  body('adminPageEnabled').optional().isBoolean().withMessage('adminPageEnabled must be a boolean')
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -104,7 +106,7 @@ router.put('/branding', requireAdminToken, [
   }
 
   try {
-    const { appName, tagline, description, logoIcon, logoFull, primaryColor, features } = req.body;
+    const { appName, tagline, description, logoIcon, logoFull, primaryColor, features, adminPageEnabled } = req.body;
 
     let mergedFeatures;
     if (features) {
@@ -127,7 +129,8 @@ router.put('/branding', requireAdminToken, [
       logo_icon: logoIcon,
       logo_full: logoFull,
       primary_color: primaryColor,
-      features: mergedFeatures
+      features: mergedFeatures,
+      admin_page_enabled: adminPageEnabled
     });
 
     logger.info('Branding settings updated');

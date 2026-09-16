@@ -24,7 +24,8 @@ const FEATURE_DEFAULTS = {
   polls: true,
   fileSharing: true,
   whiteboard: true,
-  breakoutRooms: true
+  breakoutRooms: true,
+  hostControls: true
 };
 
 function withFeatureDefaults(features) {
