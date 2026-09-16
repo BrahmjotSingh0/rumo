@@ -12,6 +12,7 @@ import { createNoiseSuppressor } from '../utils/noiseSuppression'
 import branding from '../config/branding'
 import api from '../utils/api'
 import SettingsPanel from './meeting/components/SettingsPanel'
+import Whiteboard from './meeting/components/Whiteboard'
 import VideoGrid from './meeting/VideoGrid'
 import MeetingSidebar from './meeting/MeetingSidebar'
 import MeetingControls from './meeting/MeetingControls'
@@ -95,6 +96,7 @@ const MeetingPro = () => {
   const [handRaised, setHandRaised] = useState(false) // My own raised-hand state
   const [captions, setCaptions] = useState([]) // Recent live-caption lines (self-clearing)
   const [isRecording, setIsRecording] = useState(false) // Local (camera+mic) recording, see startRecording
+  const [showWhiteboard, setShowWhiteboard] = useState(false)
 
   // Media states - use preferences from sessionStorage
   const [audioEnabled, setAudioEnabled] = useState(mediaPreferences.audio !== false)
@@ -2873,6 +2875,7 @@ const MeetingPro = () => {
           onSendReaction={sendReaction}
           isRecording={isRecording}
           onToggleRecording={toggleRecording}
+          onToggleWhiteboard={() => setShowWhiteboard(v => !v)}
           isMobile={isMobile}
           settings={settings}
         />
@@ -2885,6 +2888,16 @@ const MeetingPro = () => {
         updateSetting={updateSetting}
         resetSettings={resetSettings}
       />
+
+      {branding.features.whiteboard && (
+        <Whiteboard
+          isOpen={showWhiteboard}
+          onClose={() => setShowWhiteboard(false)}
+          socket={socket}
+          roomId={roomId}
+          canClear={isHost}
+        />
+      )}
 
       {/* Join Request Popups */}
       {joinRequests.map((request, index) => (

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Mic, MicOff, Video, VideoOff, Monitor, Phone, Users, Settings, Hand, Smile, Circle, Square } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, Monitor, Phone, Users, Settings, Hand, Smile, Circle, Square, PenLine } from 'lucide-react'
 import branding from '../../config/branding'
 
 const REACTION_EMOJI = ['👍', '👏', '❤️', '😂', '🎉', '👋']
@@ -23,6 +23,7 @@ const MeetingControls = ({
   onSendReaction,
   isRecording = false,
   onToggleRecording,
+  onToggleWhiteboard,
   isMobile,
   settings
 }) => {
@@ -157,6 +158,16 @@ const MeetingControls = ({
               </div>
             )}
           </div>
+        )}
+
+        {features.whiteboard && (
+          <button
+            onClick={onToggleWhiteboard}
+            className={`${isMobile ? 'w-14 h-14' : 'w-12 h-12 md:w-14 md:h-14'} rounded-full md:rounded-xl ${buttonBg} transition-all duration-200 flex items-center justify-center group relative overflow-hidden shadow-lg hover:shadow-xl active:scale-95`}
+            title="Whiteboard"
+          >
+            <PenLine size={isMobile ? 22 : 18} />
+          </button>
         )}
 
         {features.localRecording && (

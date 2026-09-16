@@ -13,6 +13,7 @@ class SocketService {
     this.waitingParticipants = new Map(); // socketId -> waiting participant data
     this.connectionStats = new Map(); // socketId -> stats
     this.polls = new Map(); // roomId -> current poll (one at a time, null/absent if none)
+    this.whiteboards = new Map(); // roomId -> array of stroke segments, for replay to late joiners
   }
 
   initialize(io) {
@@ -121,6 +122,10 @@ class SocketService {
     socket.on('create-poll', (data) => this.handleCreatePoll(socket, data));
     socket.on('vote-poll', (data) => this.handleVotePoll(socket, data));
     socket.on('close-poll', (data) => this.handleClosePoll(socket, data));
+
+    // Whiteboard
+    socket.on('whiteboard-draw', (data) => this.handleWhiteboardDraw(socket, data));
+    socket.on('whiteboard-clear', (data) => this.handleWhiteboardClear(socket, data));
 
     // Private room waiting room
     socket.on('request-join', (data) => this.handleJoinRequest(socket, data));
@@ -309,6 +314,12 @@ class SocketService {
       const activePoll = this.polls.get(roomId);
       if (activePoll) {
         socket.emit('poll-created', this.serializePoll(activePoll));
+      }
+
+      // Replay whatever's already been drawn on the whiteboard, if anything
+      const strokes = this.whiteboards.get(roomId);
+      if (strokes && strokes.length > 0) {
+        socket.emit('whiteboard-state', strokes);
       }
 
       // Tell the joining client their own host status - this is the only
@@ -1333,6 +1344,52 @@ class SocketService {
     } catch (error) {
       logger.error('Error closing poll:', error);
       socket.emit('error', { message: 'Failed to close poll' });
+    }
+  }
+
+  // Coordinates are fractions of the sender's own canvas (0-1), not pixels -
+  // that's what lets this replay sensibly on participants with differently
+  // sized windows. Anyone can draw (like a real whiteboard); only host/co-host
+  // can clear it.
+  handleWhiteboardDraw(socket, { roomId, x0, y0, x1, y1, color, width }) {
+    try {
+      const user = this.users.get(socket.id);
+      if (!user) return;
+
+      const stroke = {
+        x0: Number(x0), y0: Number(y0), x1: Number(x1), y1: Number(y1),
+        color: typeof color === 'string' ? color.slice(0, 20) : '#ffffff',
+        width: Math.min(Math.max(Number(width) || 3, 1), 30)
+      };
+      if ([stroke.x0, stroke.y0, stroke.x1, stroke.y1].some(n => !Number.isFinite(n))) return;
+
+      if (!this.whiteboards.has(roomId)) this.whiteboards.set(roomId, []);
+      const strokes = this.whiteboards.get(roomId);
+      strokes.push(stroke);
+      // Bound memory for very long-running whiteboard sessions - drop the
+      // oldest strokes rather than let this grow forever. Late joiners just
+      // won't see the very earliest part of a session that's gone this long.
+      if (strokes.length > 5000) strokes.splice(0, strokes.length - 5000);
+
+      socket.to(roomId).emit('whiteboard-draw', stroke);
+    } catch (error) {
+      logger.error('Error handling whiteboard draw:', error);
+    }
+  }
+
+  handleWhiteboardClear(socket, { roomId }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to clear the whiteboard' });
+        return;
+      }
+
+      this.whiteboards.set(roomId, []);
+      this.io.to(roomId).emit('whiteboard-cleared', { by: host.name });
+    } catch (error) {
+      logger.error('Error clearing whiteboard:', error);
+      socket.emit('error', { message: 'Failed to clear whiteboard' });
     }
   }
 
