@@ -1,4 +1,4 @@
-import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical, Hand, BarChart3, Plus, Trash2, Paperclip, FileText, Download } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical, Hand, BarChart3, Plus, Trash2, Paperclip, FileText, Download, DoorOpen } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import ParticipantContextMenu from './components/ParticipantContextMenu'
@@ -43,6 +43,9 @@ const MeetingSidebar = ({
   const [showCreatePoll, setShowCreatePoll] = useState(false)
   const [pollQuestion, setPollQuestion] = useState('')
   const [pollOptions, setPollOptions] = useState(['', ''])
+  const [breakoutRooms, setBreakoutRooms] = useState([])
+  const [breakoutCount, setBreakoutCount] = useState(2)
+  const [assignments, setAssignments] = useState({})
   const [roomSettings, setRoomSettings] = useState({
     allowChat: true,
     isPrivate: false,
@@ -122,6 +125,9 @@ const MeetingSidebar = ({
     const handlePollUpdated = (updatedPoll) => setPoll(updatedPoll)
     const handlePollClosed = (closedPoll) => setPoll(closedPoll)
 
+    const handleBreakoutRoomsCreated = ({ rooms }) => setBreakoutRooms(rooms)
+    const handleBreakoutRoomsClosed = () => { setBreakoutRooms([]); setAssignments({}) }
+
     socket.on('chat-status-changed', handleChatStatusChanged)
     socket.on('room-type-changed', handleRoomTypeChanged)
     socket.on('room-settings', handleRoomSettings)
@@ -135,6 +141,8 @@ const MeetingSidebar = ({
     socket.on('poll-created', handlePollCreated)
     socket.on('poll-updated', handlePollUpdated)
     socket.on('poll-closed', handlePollClosed)
+    socket.on('breakout-rooms-created', handleBreakoutRoomsCreated)
+    socket.on('breakout-rooms-closed', handleBreakoutRoomsClosed)
 
     return () => {
       socket.off('chat-status-changed', handleChatStatusChanged)
@@ -150,6 +158,8 @@ const MeetingSidebar = ({
       socket.off('poll-created', handlePollCreated)
       socket.off('poll-updated', handlePollUpdated)
       socket.off('poll-closed', handlePollClosed)
+      socket.off('breakout-rooms-created', handleBreakoutRoomsCreated)
+      socket.off('breakout-rooms-closed', handleBreakoutRoomsClosed)
     }
   }, [socket])
 
@@ -348,6 +358,27 @@ const MeetingSidebar = ({
 
   const closePoll = () => {
     if (socket) socket.emit('close-poll', { roomId })
+  }
+
+  // Breakout room actions
+  const createBreakoutRooms = () => {
+    if (socket) socket.emit('create-breakout-rooms', { roomId, count: breakoutCount })
+  }
+
+  const assignParticipant = (participant, indexValue) => {
+    if (!socket) return
+    if (indexValue === '') return
+    const index = parseInt(indexValue, 10)
+    socket.emit('assign-breakout', { roomId, targetSocketId: participant.socketId, breakoutIndex: index })
+    setAssignments(prev => ({ ...prev, [participant.socketId]: index }))
+  }
+
+  const autoAssignBreakouts = () => {
+    if (socket) socket.emit('auto-assign-breakouts', { roomId })
+  }
+
+  const closeBreakoutRooms = () => {
+    if (socket) socket.emit('close-breakout-rooms', { roomId })
   }
 
   if (!sidebarOpen) return null
@@ -554,6 +585,45 @@ const MeetingSidebar = ({
               />
             )}
 
+            {/* Breakout rooms - host only. Each one is a real room (see
+                handleCreateBreakoutRooms), so assigning someone navigates
+                their browser to it - no separate mesh handling needed. */}
+            {isHost && branding.features.breakoutRooms && (
+              <div className={`${itemBgClass} rounded-lg p-3`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <DoorOpen size={14} className={textSecondaryClass} />
+                  <p className={`${textSecondaryClass} text-xs font-semibold uppercase tracking-wide`}>Breakout rooms</p>
+                </div>
+                {breakoutRooms.length === 0 ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={2}
+                      max={20}
+                      value={breakoutCount}
+                      onChange={(e) => setBreakoutCount(Math.min(20, Math.max(2, parseInt(e.target.value, 10) || 2)))}
+                      className={`w-16 ${inputBgClass} ${textClass} px-2 py-1.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                    />
+                    <button onClick={createBreakoutRooms} className={`flex-1 px-3 py-1.5 text-sm rounded-lg ${buttonBgClass} hover:bg-blue-700 text-white font-medium`}>
+                      Create {breakoutCount} breakout rooms
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className={`${textSecondaryClass} text-xs`}>{breakoutRooms.length} breakout rooms ready. Assign participants below, or:</p>
+                    <div className="flex gap-2">
+                      <button onClick={autoAssignBreakouts} className={`flex-1 px-3 py-1.5 text-xs rounded-lg ${buttonBgClass} hover:bg-blue-700 text-white font-medium`}>
+                        Auto-assign everyone
+                      </button>
+                      <button onClick={closeBreakoutRooms} className={`px-3 py-1.5 text-xs rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium`}>
+                        Close all
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Current User */}
             <div className={`flex items-center justify-between p-3 ${itemBgClass} rounded-lg`}>
               <div className="flex items-center space-x-3">
@@ -607,6 +677,19 @@ const MeetingSidebar = ({
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
+                  {isHost && breakoutRooms.length > 0 && (
+                    <select
+                      value={assignments[participant.socketId] ?? ''}
+                      onChange={(e) => assignParticipant(participant, e.target.value)}
+                      className={`${inputBgClass} ${textClass} text-xs rounded-lg px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                      title="Assign to breakout room"
+                    >
+                      <option value="">Main room</option>
+                      {breakoutRooms.map((room) => (
+                        <option key={room.index} value={room.index}>{room.title}</option>
+                      ))}
+                    </select>
+                  )}
                   <div className="flex items-center gap-1">
                     {participant.audioEnabled ? <Mic size={16} className="text-green-500" /> : <MicOff size={16} className="text-red-500" />}
                     {participant.videoEnabled ? <Video size={16} className="text-green-500" /> : <VideoOff size={16} className="text-red-500" />}

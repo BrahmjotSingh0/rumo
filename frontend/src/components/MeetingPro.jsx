@@ -97,6 +97,19 @@ const MeetingPro = () => {
   const [captions, setCaptions] = useState([]) // Recent live-caption lines (self-clearing)
   const [isRecording, setIsRecording] = useState(false) // Local (camera+mic) recording, see startRecording
   const [showWhiteboard, setShowWhiteboard] = useState(false)
+  // If this room is a breakout, { mainRoomId, breakoutTitle } - read from
+  // sessionStorage (set right before navigating here). Doesn't need to be
+  // state: it's only ever set once, before this component mounts for this
+  // roomId, and a move to a different breakout/back to main is itself a
+  // navigation that remounts this component against a new roomId.
+  const breakoutInfo = (() => {
+    try {
+      const raw = sessionStorage.getItem(`rumo_breakout_of_${roomId}`)
+      return raw ? JSON.parse(raw) : null
+    } catch {
+      return null
+    }
+  })()
 
   // Media states - use preferences from sessionStorage
   const [audioEnabled, setAudioEnabled] = useState(mediaPreferences.audio !== false)
@@ -830,6 +843,28 @@ const MeetingPro = () => {
       currentSocket.on('reaction-received', ({ userName, emoji }) => {
         if (!mounted) return
         toast(`${emoji} ${userName}`, { duration: 2500 })
+      })
+
+      currentSocket.on('breakout-assigned', ({ breakoutRoomId, breakoutTitle, mainRoomId }) => {
+        if (!mounted) return
+        try {
+          sessionStorage.setItem(`rumo_breakout_of_${breakoutRoomId}`, JSON.stringify({ mainRoomId, breakoutTitle }))
+        } catch {
+          // ignore - private browsing etc.
+        }
+        toast.success(`Moved to ${breakoutTitle}`)
+        navigate(`/m/${breakoutRoomId}`, { state: { fromPreJoin: true } })
+      })
+
+      currentSocket.on('breakout-closed', ({ mainRoomId }) => {
+        if (!mounted) return
+        try {
+          sessionStorage.removeItem(`rumo_breakout_of_${roomId}`)
+        } catch {
+          // ignore - private browsing etc.
+        }
+        toast('Breakout rooms closed - back to the main room')
+        navigate(`/m/${mainRoomId}`, { state: { fromPreJoin: true } })
       })
 
       currentSocket.on('caption-received', ({ socketId, userName, text }) => {
@@ -1687,6 +1722,16 @@ const MeetingPro = () => {
       console.error('File upload failed:', error)
       toast.error(error.response?.data?.error || 'Failed to upload file. Its type may not be supported.')
     }
+  }
+
+  const returnToMainRoom = () => {
+    if (!breakoutInfo) return
+    try {
+      sessionStorage.removeItem(`rumo_breakout_of_${roomId}`)
+    } catch {
+      // ignore - private browsing etc.
+    }
+    navigate(`/m/${breakoutInfo.mainRoomId}`, { state: { fromPreJoin: true } })
   }
 
   const copyInviteLink = () => {
@@ -2897,6 +2942,19 @@ const MeetingPro = () => {
           roomId={roomId}
           canClear={isHost}
         />
+      )}
+
+      {/* Breakout room banner */}
+      {breakoutInfo && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[90] bg-blue-600/95 backdrop-blur-sm text-white px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-3">
+          <span className="text-sm font-medium">You're in {breakoutInfo.breakoutTitle}</span>
+          <button
+            onClick={returnToMainRoom}
+            className="text-sm font-semibold underline hover:no-underline"
+          >
+            Return to main room
+          </button>
+        </div>
       )}
 
       {/* Join Request Popups */}

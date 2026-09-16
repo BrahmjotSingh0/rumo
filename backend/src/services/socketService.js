@@ -14,6 +14,8 @@ class SocketService {
     this.connectionStats = new Map(); // socketId -> stats
     this.polls = new Map(); // roomId -> current poll (one at a time, null/absent if none)
     this.whiteboards = new Map(); // roomId -> array of stroke segments, for replay to late joiners
+    this.breakoutSessions = new Map(); // mainRoomId -> { rooms: [{id, title}] }
+    this.breakoutToMain = new Map(); // breakoutRoomId -> mainRoomId
   }
 
   initialize(io) {
@@ -126,6 +128,12 @@ class SocketService {
     // Whiteboard
     socket.on('whiteboard-draw', (data) => this.handleWhiteboardDraw(socket, data));
     socket.on('whiteboard-clear', (data) => this.handleWhiteboardClear(socket, data));
+
+    // Breakout rooms
+    socket.on('create-breakout-rooms', (data) => this.handleCreateBreakoutRooms(socket, data));
+    socket.on('assign-breakout', (data) => this.handleAssignBreakout(socket, data));
+    socket.on('auto-assign-breakouts', (data) => this.handleAutoAssignBreakouts(socket, data));
+    socket.on('close-breakout-rooms', (data) => this.handleCloseBreakoutRooms(socket, data));
 
     // Private room waiting room
     socket.on('request-join', (data) => this.handleJoinRequest(socket, data));
@@ -260,7 +268,11 @@ class SocketService {
         videoEnabled: finalVideoEnabled,
         screenSharing: false,
         handRaised: false,
-        joinedAt: new Date()
+        joinedAt: new Date(),
+        // Set only when roomId is a breakout room created via
+        // handleCreateBreakoutRooms - lets handleCloseBreakoutRooms find
+        // everyone currently sitting in one of a main room's breakouts.
+        originMainRoomId: this.breakoutToMain.get(roomId) || null
       };
       
       this.users.set(socket.id, userData);
@@ -1390,6 +1402,126 @@ class SocketService {
     } catch (error) {
       logger.error('Error clearing whiteboard:', error);
       socket.emit('error', { message: 'Failed to clear whiteboard' });
+    }
+  }
+
+  // Breakout rooms are just real rooms (created the same way POST /api/rooms
+  // does), with bookkeeping so the host can assign people into them and pull
+  // everyone back later. Assigned clients literally navigate to the new
+  // room, reusing 100% of the normal join flow - no separate WebRTC/mesh
+  // handling needed for breakouts. Because they're real rooms, they follow
+  // the same "anyone with the link can join" model as any other room - see
+  // docs/API.md.
+  async handleCreateBreakoutRooms(socket, { roomId, count }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to create breakout rooms' });
+        return;
+      }
+
+      const roomCount = Math.min(Math.max(parseInt(count, 10) || 0, 2), 20);
+      const created = [];
+      for (let i = 0; i < roomCount; i++) {
+        const room = await Room.create({ title: `Breakout ${i + 1}`, hostId: null, maxParticipants: 50 });
+        created.push({ id: room.id, title: room.title });
+        this.breakoutToMain.set(room.id, roomId);
+      }
+
+      this.breakoutSessions.set(roomId, { rooms: created });
+
+      this.io.to(roomId).emit('breakout-rooms-created', {
+        rooms: created.map((r, index) => ({ index, id: r.id, title: r.title }))
+      });
+      logger.info(`${host.name} created ${roomCount} breakout rooms for ${roomId}`);
+    } catch (error) {
+      logger.error('Error creating breakout rooms:', error);
+      socket.emit('error', { message: 'Failed to create breakout rooms' });
+    }
+  }
+
+  handleAssignBreakout(socket, { roomId, targetSocketId, breakoutIndex }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to assign breakout rooms' });
+        return;
+      }
+
+      const session = this.breakoutSessions.get(roomId);
+      const target = session?.rooms?.[breakoutIndex];
+      if (!target) {
+        socket.emit('error', { message: 'That breakout room does not exist' });
+        return;
+      }
+
+      this.io.to(targetSocketId).emit('breakout-assigned', {
+        breakoutRoomId: target.id,
+        breakoutTitle: target.title,
+        mainRoomId: roomId
+      });
+    } catch (error) {
+      logger.error('Error assigning breakout room:', error);
+      socket.emit('error', { message: 'Failed to assign breakout room' });
+    }
+  }
+
+  handleAutoAssignBreakouts(socket, { roomId }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to assign breakout rooms' });
+        return;
+      }
+
+      const session = this.breakoutSessions.get(roomId);
+      if (!session || session.rooms.length === 0) {
+        socket.emit('error', { message: 'Create breakout rooms first' });
+        return;
+      }
+
+      const participants = Array.from(this.users.values())
+        .filter(u => u.roomId === roomId && u.socketId !== socket.id);
+
+      participants.forEach((participant, index) => {
+        const target = session.rooms[index % session.rooms.length];
+        this.io.to(participant.socketId).emit('breakout-assigned', {
+          breakoutRoomId: target.id,
+          breakoutTitle: target.title,
+          mainRoomId: roomId
+        });
+      });
+
+      logger.info(`${host.name} auto-assigned ${participants.length} participants to breakout rooms`);
+    } catch (error) {
+      logger.error('Error auto-assigning breakout rooms:', error);
+      socket.emit('error', { message: 'Failed to auto-assign breakout rooms' });
+    }
+  }
+
+  handleCloseBreakoutRooms(socket, { roomId }) {
+    try {
+      const host = this.users.get(socket.id);
+      if (!this.canChangeRoomSettings(host, roomId)) {
+        socket.emit('error', { message: 'You do not have permission to close breakout rooms' });
+        return;
+      }
+
+      const session = this.breakoutSessions.get(roomId);
+      if (!session) return;
+
+      Array.from(this.users.values())
+        .filter(u => u.originMainRoomId === roomId)
+        .forEach(u => this.io.to(u.socketId).emit('breakout-closed', { mainRoomId: roomId }));
+
+      session.rooms.forEach(r => this.breakoutToMain.delete(r.id));
+      this.breakoutSessions.delete(roomId);
+
+      this.io.to(roomId).emit('breakout-rooms-closed');
+      logger.info(`${host.name} closed breakout rooms for ${roomId}`);
+    } catch (error) {
+      logger.error('Error closing breakout rooms:', error);
+      socket.emit('error', { message: 'Failed to close breakout rooms' });
     }
   }
 
