@@ -17,7 +17,7 @@ const PreJoin = () => {
   // Embedded via embed.js/RumoMeetExternalAPI (see docs/EMBEDDING.md) - a
   // host page can pass ?embed=1&name=X to skip typing a name here and to
   // carry embed mode through to the meeting itself.
-  const isEmbedded = searchParams.get('embed') === '1'
+  const isEmbedded = searchParams.get('embed') === '1' && branding.features.embedding !== false
   const nameFromQuery = searchParams.get('name') || ''
 
   const [name, setName] = useState(() => {
@@ -138,12 +138,12 @@ const PreJoin = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary-500/10 rounded-full blur-3xl animate-pulse" />
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse" />
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-gradient-to-r from-primary-500/5 to-purple-500/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary-500/5 rounded-full blur-3xl" />
       </div>
 
       <div className="max-w-4xl w-full relative z-10">
@@ -166,7 +166,7 @@ const PreJoin = () => {
                 {t('prejoin.cameraPreview')}
               </h3>
               <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
-                <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-slate-700/50 flex items-center justify-center">
+                <div className="absolute inset-0 bg-slate-800 rounded-2xl overflow-hidden shadow-2xl border border-slate-700/50 flex items-center justify-center">
                   {videoEnabled ? (
                     <video
                       ref={videoRef}
@@ -178,7 +178,7 @@ const PreJoin = () => {
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
                       <div className="text-center animate-pulse">
-                        <div className="w-16 h-16 bg-gradient-to-br from-slate-600 to-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <div className="w-16 h-16 bg-slate-600 rounded-full flex items-center justify-center mx-auto mb-4">
                           <VideoOff size={32} className="text-slate-400" />
                         </div>
                         <p className="text-slate-400 font-medium">{t('prejoin.cameraOff')}</p>
@@ -201,7 +201,7 @@ const PreJoin = () => {
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-slate-400">{t('prejoin.nameHelp')}</p>
                     {willBeHost && (
-                      <div className="px-3 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-primary-600 to-primary-700 text-white shadow-lg">
+                      <div className="px-3 py-1 rounded-full text-xs font-medium bg-primary-600 text-white shadow-lg">
                         {t('prejoin.host')}
                       </div>
                     )}
@@ -292,7 +292,7 @@ const PreJoin = () => {
                 <button
                   onClick={joinMeeting}
                   disabled={!name.trim() || loading || (needsPin && !pin.trim())}
-                  className="flex-1 px-6 py-4 bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-medium rounded-xl transition-all duration-200 hover:scale-105 shadow-lg shadow-primary-600/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
+                  className="flex-1 px-6 py-4 bg-primary-600 hover:bg-primary-700 text-white font-medium rounded-xl transition-all duration-200 hover:scale-105 shadow-lg shadow-primary-600/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
                 >
                   {loading ? (
                     <>

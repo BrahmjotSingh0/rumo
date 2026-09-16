@@ -33,6 +33,7 @@ export const DEFAULT_FEATURES = {
   whiteboard: true,
   breakoutRooms: true,
   hostControls: true,
+  embedding: true,
 };
 
 const branding = {

@@ -41,7 +41,16 @@ export function buildOutlookCalendarUrl({ title, description, url, start, durati
 export function downloadIcsFile({ title, description, url, start, durationMinutes = 60 }) {
   const startDate = new Date(start);
   const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
-  const escapeIcs = (value) => String(value).replace(/([,;])/g, '\\$1');
+  // RFC 5545 TEXT escaping: backslash first (so the escapes added below
+  // don't themselves get re-escaped), then comma/semicolon/newline. A plain
+  // CRLF/LF inside a value isn't valid ICS - it has to be the two literal
+  // characters "\n" - so this was previously producing a malformed file for
+  // any title/description containing a backslash or a line break.
+  const escapeIcs = (value) => String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/\r\n|\r|\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
 
   const ics = [
     'BEGIN:VCALENDAR',

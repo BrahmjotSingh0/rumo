@@ -392,7 +392,7 @@ const MeetingSidebar = ({
   const isLight = settings?.theme === 'light'
   const bgClass = isLight ? 'bg-white/95' : 'bg-gray-900/95'
   const borderClass = isLight ? 'border-gray-200' : 'border-gray-800/50'
-  const headerBgClass = isLight ? 'from-gray-50/50 to-white/50' : 'from-gray-800/50 to-gray-900/50'
+  const headerBgClass = isLight ? 'bg-gray-50/50' : 'bg-gray-800/50'
   const textClass = isLight ? 'text-gray-900' : 'text-white'
   const textSecondaryClass = isLight ? 'text-gray-600' : 'text-gray-400'
   const itemBgClass = isLight ? 'bg-gray-100' : 'bg-gray-700'
@@ -408,7 +408,7 @@ const MeetingSidebar = ({
   return (
     <div className={`${isMobile ? `absolute inset-0 z-40 ${bgClass} backdrop-blur-xl` : 'relative'} w-full ${!isMobile ? 'max-w-sm' : ''} ${bgClass} backdrop-blur-xl ${!isMobile ? `border-l ${borderClass}` : ''} flex flex-col shadow-2xl`}>
       {/* Sidebar Header */}
-      <div className={`p-3 md:p-4 border-b ${borderClass} bg-gradient-to-r ${headerBgClass}`}>
+      <div className={`p-3 md:p-4 border-b ${borderClass} ${headerBgClass}`}>
         <div className="flex items-center justify-between mb-3 gap-2">
           <div className="flex items-center gap-2 min-w-0">
             {canOpenHostTools && (

@@ -39,8 +39,8 @@ const HostToolsPanel = ({
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative w-full max-w-lg max-h-[85vh] overflow-y-auto themed-scrollbar ${bgClass} rounded-2xl border ${borderClass} shadow-2xl`}>
-        <div className={`sticky top-0 flex items-center justify-between p-4 border-b ${borderClass} ${bgClass}`}>
+      <div className={`relative w-full max-w-lg max-h-[85vh] flex flex-col ${bgClass} rounded-2xl border ${borderClass} shadow-2xl`}>
+        <div className={`flex items-center justify-between p-4 border-b ${borderClass}`}>
           <div className="flex items-center gap-2">
             <Shield size={18} className="text-blue-500" />
             <h2 className={`${textClass} font-semibold text-lg`}>Host tools</h2>
@@ -50,7 +50,7 @@ const HostToolsPanel = ({
           </button>
         </div>
 
-        <div className="p-4">
+        <div className="p-4 overflow-y-auto themed-scrollbar">
           <HostSettings
             roomSettings={roomSettings}
             isHost={isHost}

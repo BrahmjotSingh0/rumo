@@ -262,7 +262,7 @@ const VideoGrid = ({
     const panelTotal = totalHosts + panelCoHosts.length
     
     return (
-      <div className="h-full flex flex-col p-6 pt-20 pb-6 gap-6 bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 relative z-0">
+      <div className="h-full flex flex-col p-6 pt-20 pb-6 gap-6 bg-gray-950 relative z-0">
         {/* Interview Panel Header */}
         {panelTotal > 0 && (
           <div className="text-center mb-2 relative z-20">
@@ -271,7 +271,7 @@ const VideoGrid = ({
         )}
         
         {/* Interview Panel - Hosts at Top (like judges/interviewers) */}
-        <div className={`${panelTotal === 0 ? 'hidden' : 'h-[32%]'} bg-gradient-to-br from-blue-950/30 via-indigo-950/20 to-blue-950/30 rounded-2xl p-5 border border-blue-500/20 shadow-2xl relative z-10`}>
+        <div className={`${panelTotal === 0 ? 'hidden' : 'h-[32%]'} bg-blue-950/25 rounded-2xl p-5 border border-blue-500/20 shadow-2xl relative z-10`}>
           <div className="h-full flex gap-4 justify-center items-center">
             {/* Left co-hosts */}
             {panelCoHosts.slice(0, Math.floor(panelCoHosts.length / 2)).map((coHost, index) => (
@@ -316,7 +316,7 @@ const VideoGrid = ({
         </div>
         
         {/* Candidates/Interviewees Section */}
-        <div className="flex-1 mt-10 bg-gradient-to-br from-gray-900/40 via-gray-800/30 to-gray-900/40 rounded-2xl p-5 border border-gray-700/30 shadow-xl relative z-10 mt-2 flex flex-col">
+        <div className="flex-1 mt-10 bg-gray-900/35 rounded-2xl p-5 border border-gray-700/30 shadow-xl relative z-10 mt-2 flex flex-col">
           {/* Participants Header */}
           {visibleInterviewees.length > 0 && (
             <div className="text-center mb-3 flex-shrink-0">
@@ -342,9 +342,9 @@ const VideoGrid = ({
                     totalTiles={visibleInterviewees.length}
                   />
                   {showMoreOverlay && (
-                    <div className="absolute inset-0 bg-gradient-to-br from-black/95 via-gray-900/95 to-black/95 rounded-xl flex items-center justify-center backdrop-blur-md ring-1 ring-gray-600/50">
+                    <div className="absolute inset-0 bg-black/95 rounded-xl flex items-center justify-center backdrop-blur-md ring-1 ring-gray-600/50">
                       <div className="text-center">
-                        <div className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 mb-2">
+                        <div className="text-5xl font-bold text-blue-400 mb-2">
                           +{hiddenCount}
                         </div>
                         <div className="text-sm text-gray-300 font-medium">more participants</div>
@@ -400,9 +400,9 @@ const VideoGrid = ({
     const panelTotal = hosts.length + panelCoHosts.length
 
     return (
-      <div className="h-full flex flex-col p-6 pt-20 pb-6 gap-4 bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950">
+      <div className="h-full flex flex-col p-6 pt-20 pb-6 gap-4 bg-gray-950">
         {panelTotal > 0 && (
-          <div className={`${settings.compactMode ? 'h-[30%]' : 'h-[38%]'} flex-shrink-0 bg-gradient-to-br from-blue-950/30 via-indigo-950/20 to-blue-950/30 rounded-2xl p-5 border border-blue-500/20 shadow-2xl`}>
+          <div className={`${settings.compactMode ? 'h-[30%]' : 'h-[38%]'} flex-shrink-0 bg-blue-950/25 rounded-2xl p-5 border border-blue-500/20 shadow-2xl`}>
             <div className="h-full flex gap-4 justify-center items-center">
               {panelCoHosts.slice(0, Math.floor(panelCoHosts.length / 2)).map((coHost, index) => (
                 <VideoTile key={coHost.isYou ? `webinar-cohost-${index}` : coHost.socketId} participant={coHost} isHost={false} isCoHost={true} settings={settings} />
@@ -417,7 +417,7 @@ const VideoGrid = ({
           </div>
         )}
 
-        <div className="flex-1 bg-gradient-to-br from-gray-900/40 via-gray-800/30 to-gray-900/40 rounded-2xl p-4 border border-gray-700/30 shadow-xl overflow-y-auto">
+        <div className="flex-1 bg-gray-900/35 rounded-2xl p-4 border border-gray-700/30 shadow-xl overflow-y-auto">
           {allAudience.length > 0 ? (
             <>
               <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider text-center mb-3">
@@ -587,14 +587,14 @@ const VideoGrid = ({
               className={`w-full h-full object-contain bg-black ${mainVideo.isYou && settings.mirrorLocalVideo ? 'scale-x-[-1]' : ''}`}
             />
           ) : (
-            <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-950 flex items-center justify-center">
+            <div className="w-full h-full bg-gray-900 flex items-center justify-center">
               <div className="text-center">
                 {mainVideo.profilePicture ? (
                   <div className="w-28 h-28 rounded-full overflow-hidden mx-auto mb-4 border-4 border-blue-500 shadow-xl">
                     <img src={mainVideo.profilePicture} alt={mainVideo.name} className="w-full h-full object-cover" />
                   </div>
                 ) : (
-                  <div className="w-28 h-28 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <div className="w-28 h-28 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
                     <span className="text-4xl font-bold text-white">{mainVideo.name?.charAt(0)?.toUpperCase()}</span>
                   </div>
                 )}
@@ -669,14 +669,14 @@ const VideoGrid = ({
               style={{ display: mainVideo.videoEnabled ? 'block' : 'none' }}
             />
             {!mainVideo.videoEnabled && (
-              <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center">
+              <div className="w-full h-full bg-gray-700 flex items-center justify-center">
                 <div className="text-center">
                   {mainVideo.profilePicture ? (
                     <div className="w-20 h-20 rounded-full overflow-hidden mx-auto mb-3 border-4 border-purple-500 shadow-xl">
                       <img src={mainVideo.profilePicture} alt={mainVideo.name} className="w-full h-full object-cover" />
                     </div>
                   ) : (
-                    <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-3">
                       <span className="text-3xl font-bold text-white">{mainVideo.name?.charAt(0)?.toUpperCase()}</span>
                     </div>
                   )}
@@ -821,7 +821,7 @@ const VideoGrid = ({
                               <img src={userProfilePicture} alt={userName} className="w-full h-full object-cover" />
                             </div>
                           ) : (
-                            <div className={`${isMobile ? 'w-10 h-10' : 'w-12 h-12'} bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center`}>
+                            <div className={`${isMobile ? 'w-10 h-10' : 'w-12 h-12'} bg-blue-600 rounded-full flex items-center justify-center`}>
                               <span className={`text-white ${isMobile ? 'text-sm' : 'text-base'} font-medium`}>{userName?.charAt(0)?.toUpperCase()}</span>
                             </div>
                           )}
@@ -865,7 +865,7 @@ const VideoGrid = ({
                                 <img src={participant.profilePicture} alt={participant.name} className="w-full h-full object-cover" />
                               </div>
                             ) : (
-                              <div className={`${isMobile ? 'w-10 h-10' : 'w-12 h-12'} bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center`}>
+                              <div className={`${isMobile ? 'w-10 h-10' : 'w-12 h-12'} bg-blue-600 rounded-full flex items-center justify-center`}>
                                 <span className={`text-white ${isMobile ? 'text-sm' : 'text-base'} font-medium`}>{participant.name?.charAt(0)?.toUpperCase()}</span>
                               </div>
                             )}
@@ -892,9 +892,9 @@ const VideoGrid = ({
                   
                   {/* +X more overlay on last thumbnail */}
                   {showMore && (
-                    <div className={`absolute inset-0 bg-gradient-to-br from-black/95 via-gray-900/95 to-black/95 rounded-lg flex items-center justify-center backdrop-blur-md`}>
+                    <div className={`absolute inset-0 bg-black/95 rounded-lg flex items-center justify-center backdrop-blur-md`}>
                       <div className="text-center">
-                        <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 mb-1">
+                        <div className="text-3xl font-bold text-blue-400 mb-1">
                           +{hiddenCount}
                         </div>
                         <div className="text-xs text-gray-300 font-medium">more</div>
@@ -947,9 +947,9 @@ const VideoTile = ({ participant, isHost: isTileHost, isCoHost, isMainHost, sett
   }
   
   const getBackgroundClass = () => {
-    if (isMainHost) return 'bg-gradient-to-br from-blue-900 via-indigo-900 to-blue-950'
-    if (isTileHost || isCoHost) return 'bg-gradient-to-br from-blue-800 via-indigo-800 to-blue-900'
-    return 'bg-gradient-to-br from-gray-700 via-gray-800 to-gray-900'
+    if (isMainHost) return 'bg-blue-900'
+    if (isTileHost || isCoHost) return 'bg-blue-800'
+    return 'bg-gray-800'
   }
 
   return (
@@ -975,8 +975,8 @@ const VideoTile = ({ participant, isHost: isTileHost, isCoHost, isMainHost, sett
             ) : (
               <div className={`${isMainHost ? 'w-28 h-28 text-5xl' : (isTileHost || isCoHost) ? 'w-20 h-20 text-3xl' : 'w-16 h-16 text-2xl'} ${
                 isTileHost || isCoHost || isMainHost
-                  ? 'bg-gradient-to-br from-blue-500 to-indigo-600' 
-                  : 'bg-gradient-to-br from-blue-500 to-purple-600'
+                  ? 'bg-blue-600' 
+                  : 'bg-blue-600'
               } rounded-full flex items-center justify-center mx-auto mb-3 shadow-xl`}>
                 <span className="font-bold text-white">{participant.name?.charAt(0)?.toUpperCase()}</span>
               </div>
@@ -992,15 +992,15 @@ const VideoTile = ({ participant, isHost: isTileHost, isCoHost, isMainHost, sett
       {settings.showParticipantNames && (
         <div className={`absolute bottom-0 left-0 right-0 ${
           isTileHost || isCoHost || isMainHost
-            ? 'bg-gradient-to-t from-blue-900/95 via-blue-900/80 to-transparent' 
-            : 'bg-gradient-to-t from-black/95 via-black/80 to-transparent'
+            ? 'bg-blue-900/90' 
+            : 'bg-black/85'
         } px-3 py-3`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               {(isTileHost || isCoHost || isMainHost) && (
                 <div className={`flex-shrink-0 px-2.5 py-1 ${
-                  isMainHost ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-sm shadow-lg' : 
-                  'bg-gradient-to-r from-blue-400 to-blue-500 text-xs shadow-md'
+                  isMainHost ? 'bg-blue-600 text-sm shadow-lg' : 
+                  'bg-blue-500 text-xs shadow-md'
                 } rounded text-white font-bold uppercase tracking-wide`}>
                   {isMainHost ? 'HOST' : isCoHost ? 'CO-HOST' : 'HOST'}
                 </div>

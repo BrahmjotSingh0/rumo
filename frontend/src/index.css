@@ -65,10 +65,6 @@
     @apply relative overflow-hidden rounded-lg bg-gray-800 aspect-video;
   }
   
-  .video-overlay {
-    @apply absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent;
-  }
-  
   .control-btn {
     @apply flex h-12 w-12 items-center justify-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900;
   }
@@ -154,10 +150,6 @@
     @apply bg-white/10 backdrop-blur-md border border-white/20;
   }
   
-  .gradient-text {
-    @apply bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent;
-  }
-  
   .animate-slide-in-right {
     animation: slideInRight 0.3s ease-out;
   }
@@ -170,6 +162,30 @@
     to {
       transform: translateX(0);
       opacity: 1;
+    }
+  }
+
+  /* Google Meet style reaction: pop in near the controls bar, float up, fade
+     out. See ReactionOverlay. */
+  .reaction-float {
+    animation: reactionFloatUp 3s ease-out forwards;
+  }
+
+  @keyframes reactionFloatUp {
+    0% {
+      transform: translateY(0) scale(0.4);
+      opacity: 0;
+    }
+    12% {
+      transform: translateY(-16px) scale(1.15);
+      opacity: 1;
+    }
+    80% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(-380px) scale(1);
+      opacity: 0;
     }
   }
 }

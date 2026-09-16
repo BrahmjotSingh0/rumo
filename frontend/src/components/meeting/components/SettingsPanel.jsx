@@ -18,7 +18,7 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
 
   const bgClass = isLight ? 'bg-white/95' : 'bg-gray-900/95'
   const borderClass = isLight ? 'border-gray-200' : 'border-gray-800/50'
-  const headerBgClass = isLight ? 'from-gray-50/50 to-white/50' : 'from-gray-800/50 to-gray-900/50'
+  const headerBgClass = isLight ? 'bg-gray-50/50' : 'bg-gray-800/50'
   const iconBgClass = isLight ? 'bg-blue-100' : 'bg-blue-500/20'
   const iconColorClass = isLight ? 'text-blue-600' : 'text-blue-400'
   const textClass = isLight ? 'text-gray-900' : 'text-white'
@@ -35,7 +35,7 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[200] flex items-center justify-center p-2 sm:p-4">
       <div className={`${bgClass} backdrop-blur-xl rounded-2xl border ${borderClass} w-full max-w-2xl max-h-[90vh] sm:max-h-[80vh] overflow-hidden shadow-2xl flex flex-col`}>
         {/* Header */}
-        <div className={`flex items-center justify-between p-4 sm:p-6 border-b ${borderClass} bg-gradient-to-r ${headerBgClass}`}>
+        <div className={`flex items-center justify-between p-4 sm:p-6 border-b ${borderClass} ${headerBgClass}`}>
           <div className="flex items-center gap-3">
             <div className={`p-2 ${iconBgClass} rounded-lg`}>
               <Settings className={iconColorClass} size={20} />

@@ -38,6 +38,7 @@ const FEATURE_LABELS = [
   { key: 'fileSharing', label: 'File sharing', description: 'Share small files in chat' },
   { key: 'whiteboard', label: 'Whiteboard', description: 'A shared drawing surface, synced live to everyone in the room' },
   { key: 'breakoutRooms', label: 'Breakout rooms', description: 'Host can split participants into separate sub-rooms' },
+  { key: 'embedding', label: 'Embedding', description: 'Allow this instance to be embedded in an iframe on other sites (see docs/EMBEDDING.md)' },
 ];
 
 const Admin = () => {

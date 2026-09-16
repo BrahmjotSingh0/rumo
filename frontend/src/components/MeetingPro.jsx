@@ -13,11 +13,18 @@ import branding from '../config/branding'
 import api from '../utils/api'
 import SettingsPanel from './meeting/components/SettingsPanel'
 import Whiteboard from './meeting/components/Whiteboard'
+import ReactionOverlay from './meeting/components/ReactionOverlay'
 import VideoGrid from './meeting/VideoGrid'
 import MeetingSidebar from './meeting/MeetingSidebar'
 import MeetingControls from './meeting/MeetingControls'
 import JoinRequestPopup from './meeting/JoinRequestPopup'
-import { playUserJoined, playYouJoined, playUserLeft, playScreenShareStart, playScreenShareStop, playJoinRequest, playHandRaised, playReaction, playRecordingStart, playRecordingStop, playRemoved } from '../utils/sounds'
+import { playUserJoined, playYouJoined, playUserLeft, playScreenShareStart, playScreenShareStop, playJoinRequest, playHandRaised, playReaction, playRecordingStart, playRecordingStop, playRemoved, playChatMessage } from '../utils/sounds'
+
+// How long to wait for socket.io's own automatic reconnection to succeed
+// (and for this client to rejoin the room) before treating a dropped
+// connection as terminal - covers a brief network blip or the backend
+// redeploying/restarting for a few seconds.
+const RECONNECT_GRACE_MS = 20000
 
 // All layouts VideoGrid knows how to render (see its viewMode prop). Order
 // here is the order shown in the layout picker menu.
@@ -67,11 +74,22 @@ const MeetingPro = () => {
   // (see docs/EMBEDDING.md). Enables the postMessage bridge below and skips
   // navigating the iframe to the marketing site on hangup.
   const [searchParams] = useSearchParams()
-  const isEmbedded = searchParams.get('embed') === '1'
+  const isEmbedded = searchParams.get('embed') === '1' && branding.features.embedding !== false
   const postToParent = (type, payload = {}) => {
     if (!isEmbedded) return
     try {
-      window.parent.postMessage({ source: 'rumo', type, payload }, '*')
+      // Any site can embed a Rumo meeting (docs/EMBEDDING.md), so there's no
+      // fixed origin to configure in advance - but document.referrer (the
+      // embedding page's URL, set by the browser for a same-tab child
+      // iframe) lets us target that specific origin instead of broadcasting
+      // to '*' whenever it's available, rather than always using '*'.
+      let targetOrigin = '*'
+      try {
+        if (document.referrer) targetOrigin = new URL(document.referrer).origin
+      } catch {
+        // malformed/unavailable referrer - fall back to '*'
+      }
+      window.parent.postMessage({ source: 'rumo', type, payload }, targetOrigin)
     } catch {
       // ignore - no parent frame
     }
@@ -94,6 +112,7 @@ const MeetingPro = () => {
   const [allowParticipantScreenShare, setAllowParticipantScreenShare] = useState(true)
   const [allowSelfUnmute, setAllowSelfUnmute] = useState(true)
   const [handRaised, setHandRaised] = useState(false) // My own raised-hand state
+  const [floatingReactions, setFloatingReactions] = useState([]) // Google Meet style float-up-and-fade reactions, see ReactionOverlay
   const [captions, setCaptions] = useState([]) // Recent live-caption lines (self-clearing)
   const [isRecording, setIsRecording] = useState(false) // Local (camera+mic) recording, see startRecording
   const [showWhiteboard, setShowWhiteboard] = useState(false)
@@ -118,7 +137,7 @@ const MeetingPro = () => {
   const [facingMode, setFacingMode] = useState('user') // 'user' = front, 'environment' = back
 
   // UI states
-  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 768)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('participants')
   const [viewMode, setViewMode] = useState('grid') // 'grid', 'speaker', 'interview'
   const [showControls, setShowControls] = useState(true)
@@ -165,20 +184,34 @@ const MeetingPro = () => {
   const originalAudioTrackRef = useRef(null) // Store original audio track
   const isInitialNoiseSuppressionMount = useRef(true) // Track initial mount for noise suppression
   const isFlippingCamera = useRef(false) // Prevent multiple simultaneous flips
-  
+  const activeTabRef = useRef(activeTab)
+  const sidebarOpenRef = useRef(sidebarOpen)
+  const hasConnectedBeforeRef = useRef(false) // Distinguishes the first 'connect' from a later reconnect
+  const hasJoinedRoomOnceRef = useRef(false) // Distinguishes the first 'room-users' from a rejoin-after-reconnect
+  const reconnectGraceTimeoutRef = useRef(null)
+
   // Debug log helper for mobile
   const addDebugLog = useCallback((message, type = 'info') => {
     const timestamp = new Date().toLocaleTimeString()
     setDebugLogs(prev => [...prev.slice(-50), { timestamp, message, type }]) // Keep last 50 logs
     console.log(`[Debug ${type.toUpperCase()}]`, message)
   }, [])
-  
+
   // Update refs when values change
   useEffect(() => {
     userNameRef.current = userName
     isHostRef.current = isHost
     userRoleRef.current = userRole
   }, [userName, isHost, userRole])
+
+  // Read by the 'new-message' socket handler, registered once in a large
+  // effect that doesn't re-run on every tab switch - without this it would
+  // always see whatever tab/sidebar state was true at the moment the socket
+  // connected, not the current one.
+  useEffect(() => {
+    activeTabRef.current = activeTab
+    sidebarOpenRef.current = sidebarOpen
+  }, [activeTab, sidebarOpen])
 
   useEffect(() => {
     setViewMode(settings.layout || 'grid')
@@ -387,7 +420,13 @@ const MeetingPro = () => {
       currentSocket.on('room-users', (users) => {
         if (!mounted) return
 
-        playYouJoined()
+        toast.dismiss('rumo-reconnect')
+        if (hasJoinedRoomOnceRef.current) {
+          toast.success('Reconnected', { duration: 2000 })
+        } else {
+          hasJoinedRoomOnceRef.current = true
+          playYouJoined()
+        }
         postToParent('videoConferenceJoined', { roomId })
         setParticipants(users)
         if (users.length > 0) {
@@ -720,6 +759,16 @@ const MeetingPro = () => {
       currentSocket.on('new-message', (message) => {
         if (!mounted) return
         setMessages(prev => [...prev, message])
+
+        const isOwnMessage = message.userName === userNameRef.current
+        const viewingChat = sidebarOpenRef.current && activeTabRef.current === 'chat'
+        if (!isOwnMessage && !viewingChat) {
+          playChatMessage()
+          const preview = message.type === 'file'
+            ? `📎 ${message.fileName || 'sent a file'}`
+            : String(message.message || '').slice(0, 80)
+          toast(`${message.userName}: ${preview}`, { duration: 3000, icon: '💬' })
+        }
       })
 
       currentSocket.on('force-mute', () => {
@@ -848,9 +897,13 @@ const MeetingPro = () => {
         setParticipants(prev => prev.map(p => p.socketId === socketId ? { ...p, handRaised: false } : p))
       })
 
-      currentSocket.on('reaction-received', ({ userName, emoji }) => {
+      currentSocket.on('reaction-received', ({ emoji }) => {
         if (!mounted) return
-        toast(`${emoji} ${userName}`, { duration: 2500 })
+        const id = `${Date.now()}-${Math.random()}`
+        setFloatingReactions(prev => [...prev, { id, emoji, x: 15 + Math.random() * 70 }])
+        setTimeout(() => {
+          setFloatingReactions(prev => prev.filter(r => r.id !== id))
+        }, 3000)
         playReaction()
       })
 
@@ -985,25 +1038,86 @@ const MeetingPro = () => {
         setTimeout(() => navigate('/'), 2000)
       })
 
-      // Handle unexpected disconnection. There's no reconnect-and-rejoin flow
-      // (a fresh join is required either way), so this is already a terminal
-      // state for the session - stop the camera/mic right away to match what
-      // the toast below tells the user, instead of leaving them lit until
-      // the tab happens to unmount some other way.
+      // socket.io reconnects the transport on its own (default options -
+      // that's still just TCP/WS coming back, not room membership). A brief
+      // network blip or the backend redeploying for a couple seconds
+      // shouldn't instantly boot everyone off the call and drop their
+      // camera, so give it a grace window to reconnect and rejoin before
+      // treating the disconnect as terminal.
       currentSocket.on('disconnect', (reason) => {
         if (!mounted) return
         console.log('Socket disconnected:', reason)
         addDebugLog(`Disconnected: ${reason}`, 'warning')
 
-        // Only show error if it wasn't a manual disconnect
-        if (reason !== 'io client disconnect') {
+        // A manual disconnect (Leave button, e.g.) needs no recovery/toast.
+        if (reason === 'io client disconnect') return
+
+        toast.loading('Connection lost, trying to reconnect...', { id: 'rumo-reconnect', duration: Infinity })
+        reconnectGraceTimeoutRef.current = setTimeout(() => {
+          if (!mounted) return
+          toast.dismiss('rumo-reconnect')
           stopAllMedia({ closePeers: true })
           playRemoved()
           toast.error('Connection lost. Your media has been stopped.', { duration: 3000 })
           setTimeout(() => navigate('/'), 2500)
+        }, RECONNECT_GRACE_MS)
+      })
+
+      currentSocket.on('connect', () => {
+        if (!mounted) return
+
+        // The very first connection is handled by initializeConnection()'s
+        // own host-rejoin/request-join call above - this branch is only for
+        // a reconnect after the 'disconnect' handler above already fired.
+        if (!hasConnectedBeforeRef.current) {
+          hasConnectedBeforeRef.current = true
+          return
+        }
+
+        if (reconnectGraceTimeoutRef.current) {
+          clearTimeout(reconnectGraceTimeoutRef.current)
+          reconnectGraceTimeoutRef.current = null
+        }
+
+        addDebugLog('Reconnected - rejoining room', 'info')
+
+        // The old peer connections died with the transport; discard them so
+        // the room-users handler below creates fresh ones once we rejoin,
+        // exactly like a first-time join would.
+        peerConnections.current.forEach(pc => pc.close())
+        peerConnections.current.clear()
+        peerStreamCount.current.clear()
+        setRemoteStreams(new Map())
+        setRemoteScreenStreams(new Map())
+
+        let hostToken = null
+        try {
+          hostToken = sessionStorage.getItem(`rumo_host_token_${roomId}`)
+        } catch {
+          // ignore - private browsing etc.
+        }
+
+        if (isHostRef.current && hostToken) {
+          currentSocket.emit('host-rejoin', {
+            roomId,
+            userId: socketUserId.current,
+            userName: userNameRef.current,
+            audioEnabled,
+            videoEnabled,
+            hostToken
+          })
+        } else {
+          currentSocket.emit('request-join', {
+            roomId,
+            userId: socketUserId.current,
+            userName: userNameRef.current,
+            audioEnabled,
+            videoEnabled,
+            pin: mediaPreferences.pin
+          })
         }
       })
-      
+
       // Handle connection errors
       currentSocket.on('connect_error', (error) => {
         if (!mounted) return
@@ -1053,6 +1167,11 @@ const MeetingPro = () => {
     
     return () => {
       mounted = false
+      if (reconnectGraceTimeoutRef.current) {
+        clearTimeout(reconnectGraceTimeoutRef.current)
+        reconnectGraceTimeoutRef.current = null
+      }
+      toast.dismiss('rumo-reconnect')
       stopAllMedia({ closePeers: true })
       if (currentSocket) currentSocket.disconnect()
     }
@@ -2672,16 +2791,16 @@ const MeetingPro = () => {
 
   // Theme classes - light theme with warm tones, dark theme truly dark
   const themeClasses = settings.theme === 'light' 
-    ? 'bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30'
-    : 'bg-gradient-to-br from-gray-950 via-slate-950 to-gray-950'
+    ? 'bg-gray-50'
+    : 'bg-gray-950'
 
   const headerClasses = settings.theme === 'light'
     ? isMobile 
       ? 'bg-white/95 backdrop-blur-xl border-b border-gray-200 shadow-lg'
-      : 'bg-gradient-to-b from-white/90 to-transparent'
+      : 'bg-white/80'
     : isMobile
       ? 'bg-gray-950/98 backdrop-blur-xl border-b border-gray-800/50 shadow-lg'
-      : 'bg-gradient-to-b from-black/60 to-transparent'
+      : 'bg-black/60'
 
   const roomInfoClasses = settings.theme === 'light'
     ? 'bg-white/90 backdrop-blur-xl border-gray-200 shadow-xl'
@@ -2901,6 +3020,8 @@ const MeetingPro = () => {
           canClear={isHost}
         />
       )}
+
+      <ReactionOverlay reactions={floatingReactions} />
 
       {/* Breakout room banner */}
       {breakoutInfo && (

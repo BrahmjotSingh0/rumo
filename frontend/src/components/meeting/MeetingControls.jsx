@@ -70,7 +70,6 @@ const MeetingControls = ({
           }`}
           title={audioEnabled ? 'Mute' : 'Unmute'}
         >
-          {!isMobile && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />}
           {audioEnabled ? <Mic size={isMobile ? 22 : 18} /> : <MicOff size={isMobile ? 22 : 18} />}
         </button>
         
@@ -83,7 +82,6 @@ const MeetingControls = ({
           }`}
           title={videoEnabled ? 'Turn off camera' : 'Turn on camera'}
         >
-          {!isMobile && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />}
           {videoEnabled ? <Video size={isMobile ? 22 : 18} /> : <VideoOff size={isMobile ? 22 : 18} />}
         </button>
         
@@ -112,7 +110,6 @@ const MeetingControls = ({
               }`}
               title={!canScreenShare ? 'Screen sharing has been disabled by the host' : screenSharing ? 'Screen share options' : 'Share screen'}
             >
-              {!isMobile && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />}
               <Monitor size={isMobile ? 22 : 18} />
             </button>
 
@@ -215,7 +212,6 @@ const MeetingControls = ({
           className={`${isMobile ? 'w-14 h-14' : 'w-12 h-12 md:w-14 md:h-14'} rounded-full md:rounded-xl ${buttonBg} transition-all duration-200 flex items-center justify-center group relative overflow-hidden shadow-lg hover:shadow-xl active:scale-95`}
           title="Copy invite link"
         >
-          {!isMobile && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />}
           <Link2 size={isMobile ? 22 : 18} />
         </button>
 
@@ -224,7 +220,6 @@ const MeetingControls = ({
           className={`${isMobile ? 'w-14 h-14' : 'w-12 h-12 md:w-14 md:h-14'} rounded-full md:rounded-xl ${buttonBg} transition-all duration-200 flex items-center justify-center group relative overflow-hidden shadow-lg hover:shadow-xl active:scale-95`}
           title="Settings"
         >
-          {!isMobile && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />}
           <Settings size={isMobile ? 22 : 18} />
         </button>
 
@@ -233,7 +228,6 @@ const MeetingControls = ({
           className={`${isMobile ? 'w-14 h-14' : 'w-12 h-12 md:w-14 md:h-14'} rounded-full md:rounded-xl bg-red-500/90 hover:bg-red-600 text-white transition-all duration-200 flex items-center justify-center group relative overflow-hidden shadow-lg shadow-red-500/25 hover:shadow-red-500/40 active:scale-95`}
           title="Leave meeting"
         >
-          {!isMobile && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />}
           <Phone size={isMobile ? 22 : 18} className="rotate-[135deg]" />
         </button>
       </div>
