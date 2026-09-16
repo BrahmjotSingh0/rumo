@@ -79,5 +79,6 @@ api.on('participantJoined', ({ id, displayName }) => { ... });
 ## Notes
 
 - The iframe needs camera/mic/screen-share permission from the parent page: `embed.js` sets `allow="camera; microphone; display-capture; autoplay; clipboard-write"` on it automatically.
-- Messages between the iframe and your page use `window.postMessage` with a wildcard target origin, the same approach most embeddable video widgets use (YouTube, Vimeo, Jitsi). `RumoMeetExternalAPI` already checks that inbound messages actually come from the iframe it created, so you don't need to add that check yourself.
+- Messages from the iframe to your page are targeted at your page's actual origin (read from `document.referrer` inside the iframe), not a wildcard - if your page sends a strict `Referrer-Policy` (e.g. `no-referrer`) that strips this, the iframe can't determine your origin and simply won't send events, rather than falling back to broadcasting them. `RumoMeetExternalAPI` already checks that inbound messages actually come from the iframe it created, so you don't need to add that check yourself.
+- An operator can turn off embedding entirely for their instance (the "Embedding" feature flag in `/admin`, on by default); if they have, the page breaks out of any iframe it's loaded in instead of rendering there.
 - This whole feature is just the existing `/meeting/:roomId` page plus a `postMessage` bridge - there's no separate "embed server" or extra infrastructure to run.

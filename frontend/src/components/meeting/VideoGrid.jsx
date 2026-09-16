@@ -498,11 +498,11 @@ const VideoGrid = ({
             const isScreen = video.type.includes('screen')
             
             return (
-              <div key={`${video.type}-${index}`} className={`group ${isMobile ? 'flex flex-col' : 'relative'}`}>
+              <div key={`${video.type}-${index}`} className={isMobile ? 'flex flex-col' : 'relative'}>
                 <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-video">
                   <button
                     onClick={() => handlePin(video)}
-                    className={`absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-black/60 text-white transition-opacity ${isMobile ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'}`}
+                    className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white opacity-70 hover:opacity-100 transition-opacity"
                     title={isScreen ? 'Pin this screen share' : `Pin ${video.name}`}
                   >
                     <Pin size={14} />
@@ -964,11 +964,11 @@ const VideoTile = ({ participant, isHost: isTileHost, isCoHost, isMainHost, sett
   }
 
   return (
-    <div className={`group ${getSizeClass()} aspect-video relative rounded-xl overflow-hidden shadow-2xl ${getRingClass()} transition-all duration-300 hover:scale-[1.02]`}>
+    <div className={`${getSizeClass()} aspect-video relative rounded-xl overflow-hidden shadow-2xl ${getRingClass()}`}>
       {onPin && (
         <button
           onClick={() => onPin(participant)}
-          className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white opacity-70 hover:opacity-100 transition-opacity"
           title={`Pin ${participant.name}`}
         >
           <Pin size={14} />

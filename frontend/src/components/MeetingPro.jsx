@@ -77,18 +77,21 @@ const MeetingPro = () => {
   const isEmbedded = searchParams.get('embed') === '1' && branding.features.embedding !== false
   const postToParent = (type, payload = {}) => {
     if (!isEmbedded) return
+    // Any site can embed a Rumo meeting (docs/EMBEDDING.md), so there's no
+    // fixed origin to configure in advance - document.referrer (the
+    // embedding page's URL, set by the browser for a same-tab child iframe)
+    // is how we find it. If it's unavailable (a strict Referrer-Policy on
+    // the embedding page, or a browser that never sets it), fail closed
+    // instead of broadcasting to '*': better to silently skip an event than
+    // send it to a page we can't identify.
+    let targetOrigin
     try {
-      // Any site can embed a Rumo meeting (docs/EMBEDDING.md), so there's no
-      // fixed origin to configure in advance - but document.referrer (the
-      // embedding page's URL, set by the browser for a same-tab child
-      // iframe) lets us target that specific origin instead of broadcasting
-      // to '*' whenever it's available, rather than always using '*'.
-      let targetOrigin = '*'
-      try {
-        if (document.referrer) targetOrigin = new URL(document.referrer).origin
-      } catch {
-        // malformed/unavailable referrer - fall back to '*'
-      }
+      targetOrigin = document.referrer ? new URL(document.referrer).origin : null
+    } catch {
+      targetOrigin = null
+    }
+    if (!targetOrigin) return
+    try {
       window.parent.postMessage({ source: 'rumo', type, payload }, targetOrigin)
     } catch {
       // ignore - no parent frame
@@ -2795,16 +2798,16 @@ const MeetingPro = () => {
     : 'bg-gray-950'
 
   const headerClasses = settings.theme === 'light'
-    ? isMobile 
-      ? 'bg-white/95 backdrop-blur-xl border-b border-gray-200 shadow-lg'
-      : 'bg-white/80'
+    ? isMobile
+      ? 'bg-white/95 border-b border-gray-200 shadow-lg'
+      : 'bg-white/90'
     : isMobile
-      ? 'bg-gray-950/98 backdrop-blur-xl border-b border-gray-800/50 shadow-lg'
-      : 'bg-black/60'
+      ? 'bg-gray-950/98 border-b border-gray-800/50 shadow-lg'
+      : 'bg-gray-950/90'
 
   const roomInfoClasses = settings.theme === 'light'
-    ? 'bg-white/90 backdrop-blur-xl border-gray-200 shadow-xl'
-    : 'bg-gray-900/90 backdrop-blur-xl border-gray-800/50 shadow-xl'
+    ? 'bg-white/90 border-gray-200 shadow-xl'
+    : 'bg-gray-900/90 border-gray-800/50 shadow-xl'
 
   const buttonClasses = settings.theme === 'light'
     ? 'text-gray-700 hover:bg-gray-200/60'
