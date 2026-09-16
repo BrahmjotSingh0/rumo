@@ -1,0 +1,40 @@
+# Security Policy
+
+## Supported versions
+
+Rumo doesn't have tagged releases yet. Only the latest commit on `main` is supported. If you're running an older checkout, please update and confirm the issue still exists before reporting it.
+
+## Reporting a vulnerability
+
+Please don't open a public GitHub issue for security vulnerabilities.
+
+Instead, use GitHub's private reporting: go to [github.com/BrahmjotSingh0/rumo/security/advisories/new](https://github.com/BrahmjotSingh0/rumo/security/advisories/new) and open a report there. It's private between you and the maintainer until a fix is out.
+
+Include what you can:
+
+- What you found and where (file, endpoint, or socket event)
+- Steps to reproduce
+- What an attacker could actually do with it
+
+## What to expect
+
+This is a small project maintained in spare time, not a company with a support contract. As a rough guide:
+
+- Acknowledgement: within a few days
+- A fix or a mitigation plan: as soon as reasonably possible, sooner for anything that affects data or lets someone run code they shouldn't
+
+## Trust model (please read before reporting)
+
+Rumo has no user accounts. Some behavior that looks like a bug is actually the documented design, covered in the [README](README.md#how-hosting-works) and [security notes](README.md#security-notes):
+
+- Host status is asserted by the client and has no cryptographic backing. Whoever creates a room, or is first to join it, becomes its host. Anyone with the room link can join. This is the same trust model most link-based meeting tools use.
+- The admin panel and its API (`/admin`, `/api/settings/*`) are protected by a single shared secret (`ADMIN_SETUP_TOKEN`), not per-user accounts, since there's no account system to attach permissions to.
+- Feature flags and some host controls are enforced by hiding controls in the client rather than a hard server-side check, and are documented that way rather than sold as a security boundary.
+
+Real vulnerabilities we do want to hear about: anything that breaks *out* of this model, for example reading or writing another room's data, forging another participant's messages, bypassing the admin token, or getting the server to execute something it shouldn't. Guests being able to join a public room with just the link, or pick their own display name, is intended and not a vulnerability on its own.
+
+## What we already do
+
+- All SQL goes through parameterized queries, no string-built queries.
+- `npm audit` is expected to report 0 vulnerabilities in both `backend/` and `frontend/` at any commit on `main`.
+- `.env` / `.env.production` are gitignored throughout the repo. If you find real credentials committed anywhere in the history, please report it privately rather than opening an issue.

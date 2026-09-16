@@ -28,6 +28,7 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 ## Contents
 
 - [Features](#features)
+- [How it compares](#how-it-compares)
 - [Quick start (Docker)](#quick-start-docker)
 - [Manual setup](#manual-setup-without-docker)
 - [Configuration](#configuration)
@@ -50,6 +51,24 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 - **Feature flags**: turn off chat, screen sharing, co-hosts, or any other optional control for the whole instance from the admin panel
 - **Built-in i18n**: every UI string lives in one `lang.json`, add a language by adding a column
 - **One-command HTTPS**: point a domain at your server and the installer sets up a reverse proxy with automatic, auto-renewing certificates
+
+## How it compares
+
+Rumo trades scale for simplicity: it's a small codebase you can actually read, running as a handful of containers, built peer-to-peer so the server never touches your audio or video. Jitsi Meet and similar tools trade that simplicity for scale: more moving parts to operate, but built to handle much larger meetings.
+
+| | Rumo | Jitsi Meet |
+|---|---|---|
+| License | MIT | Apache 2.0 |
+| Self-hosting | One `docker-compose.yml`, a handful of containers (Postgres, backend, frontend) | Several services: web, videobridge, jicofo, prosody |
+| Media routing | Peer-to-peer (WebRTC mesh); the server only relays signaling | SFU (Jitsi Videobridge) |
+| Practical group size | Small calls; each participant connects directly to every other, so bandwidth grows with headcount | Scales to much larger meetings |
+| Accounts | None; there's no account system at all | None required to join either; can be integrated for moderation |
+| Recording | Not built in | Yes, via Jibri |
+| Branding | Name, logo, colors, and which features are even shown, all from an admin panel with no rebuild | Configurable, typically through `interface_config.js` and a rebuild |
+| Translations | 20 languages in one `lang.json` file, easy to extend | Many languages already, through a larger, more established translation project |
+| Mobile | Browser only | iOS and Android apps |
+
+Neither is "better" in general, they fit different jobs. If you want the smallest possible thing to self-host for a small team, Rumo. If you need to reliably host large public calls or webinars, Jitsi Meet or [BigBlueButton](https://bigbluebutton.org/) are more proven at that scale.
 
 ## Quick start (Docker)
 
@@ -175,6 +194,7 @@ rumo/
 ├── Caddyfile             reverse proxy config used by the "proxy" profile
 ├── install.sh / install.ps1   one-command setup
 ├── CONTRIBUTING.md
+├── SECURITY.md
 └── .env.example
 ```
 
@@ -184,6 +204,7 @@ rumo/
 - [`backend/README.md`](backend/README.md): backend setup, env vars, scripts
 - [`frontend/README.md`](frontend/README.md): frontend setup, branding, i18n, scripts
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): how to contribute, coding/docs style
+- [`SECURITY.md`](SECURITY.md): supported versions, how to report a vulnerability, trust model
 - [Live docs site](https://brahmjotsingh0.github.io/rumo/): a browsable landing page for the project
 
 ## Security notes

@@ -35,13 +35,24 @@ nav.topbar .wrap {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 64px;
+  min-height: 64px;
   gap: 16px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
-.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); font-weight: 700; font-size: 1.1rem; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); font-weight: 700; font-size: 1.1rem; flex-shrink: 0; }
 .brand img { width: 28px; height: 28px; }
-.nav-links { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.nav-links::-webkit-scrollbar { display: none; }
 .nav-links a {
   color: var(--text-dim);
   text-decoration: none;
@@ -49,6 +60,8 @@ nav.topbar .wrap {
   font-weight: 600;
   padding: 8px 14px;
   border-radius: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .nav-links a:hover { color: var(--text); background: var(--bg-elevated); }
 .nav-links a.active { color: var(--text); background: var(--bg-elevated-2); }
@@ -152,7 +165,12 @@ th { color: var(--text-dim); font-weight: 600; font-size: 0.82rem; text-transfor
 footer.site-footer { padding: 40px 0 64px; text-align: center; color: var(--text-dim); font-size: 0.9rem; border-top: 1px solid var(--border); }
 footer.site-footer a { color: var(--text-dim); }
 
+.screenshot-pair { grid-template-columns: 1fr 1fr; }
+
 @media (max-width: 640px) {
   .toc ul { columns: 1; }
   h1 { font-size: 2rem; }
+  .wrap { padding: 0 16px; }
+  .nav-links a { padding: 8px 10px; font-size: 0.85rem; }
+  .screenshot-pair { grid-template-columns: 1fr; }
 }
