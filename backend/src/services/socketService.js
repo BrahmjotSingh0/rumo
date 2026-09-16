@@ -1,5 +1,8 @@
+const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 const Room = require('../models/Room');
+const config = require('../config/environment');
+const { fireWebhook } = require('../utils/webhooks');
 const { v4: uuidv4 } = require('uuid');
 
 class SocketService {
@@ -38,6 +41,23 @@ class SocketService {
     if (user.role !== 'co-host') return false;
     const roomSettings = this.rooms.get(roomId) || {};
     return roomSettings.coHostsCanChangeSettings === true;
+  }
+
+  // Handed to a client the moment it becomes host, and required back on
+  // 'host-rejoin'. Without this, host status on rejoin was a bare boolean
+  // the client could set for itself - see docs/API.md and SECURITY.md.
+  signHostToken(roomId) {
+    return jwt.sign({ roomId }, config.hostTokenSecret, { expiresIn: '12h' });
+  }
+
+  verifyHostToken(roomId, hostToken) {
+    if (!hostToken) return false;
+    try {
+      const payload = jwt.verify(hostToken, config.hostTokenSecret);
+      return payload.roomId === roomId;
+    } catch {
+      return false;
+    }
   }
 
   handleConnection(socket) {
@@ -94,6 +114,7 @@ class SocketService {
     socket.on('raise-hand', (data) => this.handleRaiseHand(socket, data));
     socket.on('lower-hand', (data) => this.handleLowerHand(socket, data));
     socket.on('send-reaction', (data) => this.handleSendReaction(socket, data));
+    socket.on('send-caption', (data) => this.handleSendCaption(socket, data));
 
     // Private room waiting room
     socket.on('request-join', (data) => this.handleJoinRequest(socket, data));
@@ -110,7 +131,7 @@ class SocketService {
     socket.on('error', (error) => this.handleError(socket, error));
   }
 
-  async handleJoinRoom(socket, { roomId, userId, userName, isHost, audioEnabled = true, videoEnabled = true, profilePicture = null, role = null }) {
+  async handleJoinRoom(socket, { roomId, userId, userName, hostToken, audioEnabled = true, videoEnabled = true, profilePicture = null, role = null }) {
     try {
       // Check if room exists in database
       const roomQuery = `SELECT * FROM "rooms" WHERE "id" = $1`;
@@ -158,8 +179,11 @@ class SocketService {
         logger.info(`User ${userId} (${userName}) switching from socket ${existingUserSession.socketId} to ${socket.id}`);
       }
 
-      // Determine if this user should be host (first person or has hostId)
-      const shouldBeHost = participantsResult.rows.length === 0 || isHost;
+      // Determine if this user should be host: either the room is empty (first
+      // joiner), or they present a hostToken previously issued for this exact
+      // room. A bare client-asserted "isHost" boolean is never trusted here -
+      // see signHostToken/verifyHostToken above.
+      const shouldBeHost = participantsResult.rows.length === 0 || this.verifyHostToken(roomId, hostToken);
 
       // Initialize room settings only the first time this room is seen. Every
       // join after that (guest, approved-from-waiting-room, host rejoin) must
@@ -277,15 +301,20 @@ class SocketService {
 
       // Tell the joining client their own host status - this is the only
       // place a client learns whether it's host, since there's no account
-      // system to derive it from on the REST side.
-      socket.emit('host-status', { isHost: shouldBeHost });
+      // system to derive it from on the REST side. hostToken is only ever
+      // sent to the socket that earned it, never broadcast to the room.
+      socket.emit('host-status', {
+        isHost: shouldBeHost,
+        hostToken: shouldBeHost ? this.signHostToken(roomId) : null
+      });
 
       // Also send updated participant list to everyone else
       socket.to(roomId).emit('participant-list-updated', allParticipants);
 
       logger.info(`${userName} joined room ${roomId} as ${shouldBeHost ? 'host' : 'participant'} (${allParticipants.length} total)`);
-      
+
       this.updateConnectionStats(socket.id, 'join-room');
+      fireWebhook('participant.joined', { roomId, participantId: participant.id, name: userName, isHost: shouldBeHost });
       
     } catch (error) {
       logger.error('Error joining room:', error);
@@ -1174,13 +1203,32 @@ class SocketService {
     }
   }
 
-  async handleHostRejoin(socket, { roomId, userId, userName, profilePicture, role, audioEnabled, videoEnabled }) {
+  // Relays one participant's own live-caption line (recognized client-side
+  // from their own mic, see frontend/src/hooks/useLiveCaptions.js) to the
+  // room. Ephemeral - never persisted, unlike chat messages.
+  handleSendCaption(socket, { roomId, text }) {
+    try {
+      const user = this.users.get(socket.id);
+      if (!user || !text) return;
+
+      this.io.to(roomId).emit('caption-received', {
+        socketId: socket.id,
+        userName: user.name,
+        text: String(text).slice(0, 300),
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      logger.error('Error sending caption:', error);
+    }
+  }
+
+  async handleHostRejoin(socket, { roomId, userId, userName, profilePicture, role, audioEnabled, videoEnabled, hostToken }) {
     try {
       await this.handleJoinRoom(socket, {
         roomId,
         userId,
         userName,
-        isHost: true,
+        hostToken,
         audioEnabled,
         videoEnabled,
         profilePicture,
@@ -1192,15 +1240,25 @@ class SocketService {
     }
   }
 
-  async handleJoinRequest(socket, { roomId, userName, profilePicture, audioEnabled, videoEnabled }) {
+  async handleJoinRequest(socket, { roomId, userName, profilePicture, audioEnabled, videoEnabled, pin, hostToken }) {
     try {
+      // PIN gate applies to everyone, including the first joiner - if the
+      // room has a PIN set, whoever set it knows it. Enforced here (not just
+      // the /verify-pin REST courtesy check) so it can't be skipped by
+      // talking to the socket directly.
+      const pinOk = await Room.verifyPin(roomId, pin);
+      if (!pinOk) {
+        socket.emit('error', { message: 'Incorrect PIN' });
+        return;
+      }
+
       // Check if room exists and get participants
       const existingParticipants = Array.from(this.users.values())
         .filter(user => user.roomId === roomId);
-      
+
       // If room is empty (no participants), this is the first person (host) - allow direct join
       if (existingParticipants.length === 0) {
-        await this.handleJoinRoom(socket, { roomId, userName, profilePicture, audioEnabled, videoEnabled });
+        await this.handleJoinRoom(socket, { roomId, userName, profilePicture, audioEnabled, videoEnabled, hostToken });
         return;
       }
 
@@ -1214,7 +1272,7 @@ class SocketService {
 
       // If room is not private, allow direct join
       if (!roomSettings || !roomSettings.isPrivate) {
-        await this.handleJoinRoom(socket, { roomId, userName, profilePicture, audioEnabled, videoEnabled });
+        await this.handleJoinRoom(socket, { roomId, userName, profilePicture, audioEnabled, videoEnabled, hostToken });
         return;
       }
 
@@ -1245,7 +1303,7 @@ class SocketService {
         // No host/co-host in room - this shouldn't happen but handle gracefully
         logger.warn(`Private room ${roomId} has no host - allowing join`);
         this.waitingParticipants.delete(socket.id);
-        await this.handleJoinRoom(socket, { roomId, userName, profilePicture, audioEnabled, videoEnabled });
+        await this.handleJoinRoom(socket, { roomId, userName, profilePicture, audioEnabled, videoEnabled, hostToken });
         return;
       }
 
@@ -1372,6 +1430,7 @@ class SocketService {
         reason,
         timestamp: Date.now()
       });
+      fireWebhook('participant.left', { roomId: user.roomId, participantId: user.id, name: user.name, reason });
 
       // Handle host transfer if needed
       if (user.isHost) {
@@ -1379,18 +1438,28 @@ class SocketService {
         if (participants.length > 0) {
           const newHost = participants[0];
           await Room.transferHost(user.roomId, newHost.socket_id);
-          
+
           this.io.to(user.roomId).emit('new-host', {
             hostId: newHost.id,
             socketId: newHost.socket_id,
             hostName: newHost.guest_name,
             timestamp: Date.now()
           });
+
+          // Give the newly-promoted host their own signed token privately -
+          // 'new-host' above is broadcast to the whole room, so the token
+          // itself never goes in that payload.
+          const newHostUser = this.users.get(newHost.socket_id);
+          if (newHostUser) newHostUser.isHost = true;
+          this.io.to(newHost.socket_id).emit('host-status', {
+            isHost: true,
+            hostToken: this.signHostToken(user.roomId)
+          });
         }
       }
 
       socket.leave(user.roomId);
-      
+
     } catch (error) {
       logger.error('Error removing user from room:', error);
     }

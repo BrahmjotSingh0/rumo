@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Video, Link2, UserRound, ShieldCheck, Users, Globe, Radio } from 'lucide-react';
+import { Video, Link2, UserRound, ShieldCheck, Users, Globe, Radio, Lock, ChevronDown, ChevronUp, Calendar, Copy, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Button from './ui/Button';
 import Input from './ui/Input';
@@ -8,6 +8,7 @@ import LanguageSwitcher from './ui/LanguageSwitcher';
 import branding, { DEFAULT_TAGLINE, DEFAULT_DESCRIPTION } from '../config/branding';
 import { useTranslation } from '../i18n/I18nProvider';
 import api from '../utils/api';
+import { buildMeetingUrl, buildGoogleCalendarUrl, buildOutlookCalendarUrl, downloadIcsFile } from '../utils/calendar';
 
 const NAME_STORAGE_KEY = 'rumo_display_name';
 
@@ -29,6 +30,12 @@ const Home = () => {
   const [roomId, setRoomId] = useState('');
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [pin, setPin] = useState('');
+  const [maxParticipants, setMaxParticipants] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [scheduledRoom, setScheduledRoom] = useState(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const navigate = useNavigate();
   const { t } = useTranslation();
 
@@ -61,10 +68,25 @@ const Home = () => {
     if (!requireName()) return;
 
     setCreating(true);
+    setScheduledRoom(null);
     try {
-      const response = await api.post('/api/rooms', { title: 'Quick Meeting' });
-      toast.success(t('home.roomCreated'));
-      navigate(`/room/${response.data.data.id}`);
+      const response = await api.post('/api/rooms', {
+        title: 'Quick Meeting',
+        password: pin.trim() || undefined,
+        maxParticipants: maxParticipants ? parseInt(maxParticipants, 10) : undefined,
+        scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined
+      });
+      const room = response.data.data;
+
+      if (scheduledAt) {
+        // Scheduled for later - show the link + calendar options instead of
+        // jumping straight into the room.
+        setScheduledRoom(room);
+        toast.success(t('home.roomScheduled'));
+      } else {
+        toast.success(t('home.roomCreated'));
+        navigate(`/room/${room.id}`);
+      }
     } catch (error) {
       console.error('Error creating room:', error);
       toast.error(t('home.errorCreateFailed'));
@@ -72,6 +94,21 @@ const Home = () => {
       setCreating(false);
     }
   };
+
+  const copyScheduledLink = () => {
+    if (!scheduledRoom) return;
+    navigator.clipboard.writeText(buildMeetingUrl(scheduledRoom.id)).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }).catch(() => toast.error(t('home.errorCopyFailed')));
+  };
+
+  const scheduledCalendarEvent = () => ({
+    title: `${branding.appName} meeting`,
+    description: t('home.calendarEventDescription'),
+    url: scheduledRoom ? buildMeetingUrl(scheduledRoom.id) : '',
+    start: scheduledAt
+  });
 
   const joinRoom = async () => {
     if (!requireName()) return;
@@ -147,6 +184,44 @@ const Home = () => {
               autoComplete="name"
             />
 
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="mt-3 flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-300"
+            >
+              {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              {t('home.advancedOptions')}
+            </button>
+
+            {showAdvanced && (
+              <div className="mt-3 space-y-3">
+                <Input
+                  icon={Lock}
+                  type="password"
+                  placeholder={t('home.pinOptionalPlaceholder')}
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  maxLength={50}
+                />
+                <Input
+                  icon={Users}
+                  type="number"
+                  min={2}
+                  max={100}
+                  placeholder={t('home.maxParticipantsPlaceholder')}
+                  value={maxParticipants}
+                  onChange={(e) => setMaxParticipants(e.target.value)}
+                />
+                <Input
+                  icon={Calendar}
+                  type="datetime-local"
+                  label={t('home.scheduleLabel')}
+                  value={scheduledAt}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                />
+              </div>
+            )}
+
             <Button
               onClick={createRoom}
               loading={creating}
@@ -154,8 +229,50 @@ const Home = () => {
               className="w-full mt-4"
             >
               <Video className="w-5 h-5 mr-2" />
-              {t('home.startNewMeeting')}
+              {scheduledAt ? t('home.scheduleMeeting') : t('home.startNewMeeting')}
             </Button>
+
+            {scheduledRoom && (
+              <div className="mt-4 p-4 rounded-lg bg-gray-900 border border-gray-700">
+                <p className="text-sm text-gray-300">{t('home.roomScheduledHelp')}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <code className="flex-1 text-xs text-gray-400 truncate">{buildMeetingUrl(scheduledRoom.id)}</code>
+                  <button
+                    type="button"
+                    onClick={copyScheduledLink}
+                    className="shrink-0 text-gray-400 hover:text-white"
+                    aria-label={t('home.copyLink')}
+                  >
+                    {linkCopied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a
+                    href={buildGoogleCalendarUrl(scheduledCalendarEvent())}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs px-3 py-1.5 rounded-md bg-gray-800 border border-gray-700 text-gray-300 hover:text-white"
+                  >
+                    {t('home.addToGoogleCalendar')}
+                  </a>
+                  <a
+                    href={buildOutlookCalendarUrl(scheduledCalendarEvent())}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs px-3 py-1.5 rounded-md bg-gray-800 border border-gray-700 text-gray-300 hover:text-white"
+                  >
+                    {t('home.addToOutlook')}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => downloadIcsFile(scheduledCalendarEvent())}
+                    className="text-xs px-3 py-1.5 rounded-md bg-gray-800 border border-gray-700 text-gray-300 hover:text-white"
+                  >
+                    {t('home.downloadIcs')}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center gap-3 my-5" aria-hidden="true">
               <div className="flex-1 h-px bg-gray-700" />

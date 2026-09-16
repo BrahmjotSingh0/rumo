@@ -31,6 +31,8 @@ const FEATURE_LABELS = [
   { key: 'layoutSwitch', label: 'Layout switcher', description: 'Grid / speaker / interview view switcher' },
   { key: 'raiseHand', label: 'Raise hand', description: 'The raise-hand control' },
   { key: 'reactions', label: 'Reactions', description: 'Emoji reactions during a call' },
+  { key: 'liveCaptions', label: 'Live captions', description: 'Browser-only speech-to-text, shared with the room' },
+  { key: 'localRecording', label: 'Local recording', description: 'Let participants record their own camera & mic to their device' },
 ];
 
 const Admin = () => {

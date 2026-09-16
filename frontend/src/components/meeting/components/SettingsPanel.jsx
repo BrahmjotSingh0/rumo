@@ -187,6 +187,23 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
                   </select>
                 </div>
 
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1">
+                    <label className={`text-sm font-medium ${textClass}`}>Low-bandwidth Mode</label>
+                    <p className={`text-xs ${textSecondaryClass} mt-0.5`}>Forces the lowest video/audio quality to save data on a poor connection</p>
+                  </div>
+                  <button
+                    onClick={() => updateSetting('lowBandwidthMode', !settings.lowBandwidthMode)}
+                    className={`relative w-12 h-6 rounded-full transition-all duration-200 flex-shrink-0 ${
+                      settings.lowBandwidthMode ? 'bg-blue-600 shadow-lg shadow-blue-600/25' : isLight ? 'bg-gray-300' : 'bg-gray-600'
+                    }`}
+                  >
+                    <div className={`absolute w-5 h-5 bg-white rounded-full top-0.5 transition-transform duration-200 shadow-lg ${
+                      settings.lowBandwidthMode ? 'translate-x-6' : 'translate-x-0.5'
+                    }`} />
+                  </button>
+                </div>
+
                 {branding.features.virtualBackgrounds && (
                   <div>
                     <label className={`block text-sm font-medium ${textClass} mb-3`}>Background</label>
@@ -286,6 +303,25 @@ const SettingsPanel = ({ isOpen, onClose, settings, updateSetting, resetSettings
                     }`} />
                   </button>
                 </div>
+
+                {branding.features.liveCaptions && (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex-1">
+                      <label className={`text-sm font-medium ${textClass}`}>Live Captions</label>
+                      <p className={`text-xs ${textSecondaryClass} mt-0.5`}>Caption your own mic locally in your browser and share it with the room</p>
+                    </div>
+                    <button
+                      onClick={() => updateSetting('liveCaptions', !settings.liveCaptions)}
+                      className={`relative w-12 h-6 rounded-full transition-all duration-200 flex-shrink-0 ${
+                        settings.liveCaptions ? 'bg-blue-600 shadow-lg shadow-blue-600/25' : isLight ? 'bg-gray-300' : 'bg-gray-600'
+                      }`}
+                    >
+                      <div className={`absolute w-5 h-5 bg-white rounded-full top-0.5 transition-transform duration-200 shadow-lg ${
+                        settings.liveCaptions ? 'translate-x-6' : 'translate-x-0.5'
+                      }`} />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

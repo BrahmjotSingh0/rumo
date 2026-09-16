@@ -54,6 +54,24 @@ const config = {
   // the /admin panel. Leave unset to disable those write endpoints entirely.
   adminSetupToken: process.env.ADMIN_SETUP_TOKEN || '',
 
+  // Signs the short-lived token a client is handed the moment it becomes
+  // host, and must present back on reconnect - without this, "am I the
+  // host" would still be a bare, unverifiable claim from the client. Falls
+  // back to a random value generated at boot so it works out of the box;
+  // the only effect of it changing on restart is that hosts have to be
+  // re-confirmed as host (empty-room-first-joiner) rather than reconnecting
+  // straight back in, which matches how the rest of the in-memory room
+  // state already resets on restart anyway.
+  hostTokenSecret: process.env.HOST_TOKEN_SECRET || require('crypto').randomBytes(32).toString('hex'),
+
+  // Optional webhook: fired for room/participant lifecycle events so a
+  // self-hoster can react to them (e.g. logging, embedding integrations).
+  // Unset by default - no outbound requests happen unless configured.
+  webhook: {
+    url: process.env.WEBHOOK_URL || '',
+    secret: process.env.WEBHOOK_SECRET || ''
+  },
+
   // Logging Configuration
   logging: {
     level: process.env.LOG_LEVEL || 'info',

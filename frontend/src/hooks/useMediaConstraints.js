@@ -58,19 +58,21 @@ const AUDIO_QUALITY_PRESETS = {
 
 export const useMediaConstraints = (settings = {}) => {
   const videoConstraints = useMemo(() => {
-    const quality = settings.videoQuality || 'auto'
+    // Low-bandwidth mode overrides the quality dropdown - it's meant as a
+    // single "my connection is bad" switch, not another quality tier to pick.
+    const quality = settings.lowBandwidthMode ? 'low' : (settings.videoQuality || 'auto')
     const preset = VIDEO_QUALITY_PRESETS[quality] || VIDEO_QUALITY_PRESETS.auto
-    
+
     return {
       ...preset,
       facingMode: settings.facingMode || 'user'
     }
-  }, [settings.videoQuality, settings.facingMode])
+  }, [settings.videoQuality, settings.facingMode, settings.lowBandwidthMode])
 
   const audioConstraints = useMemo(() => {
-    const quality = settings.audioQuality || 'auto'
+    const quality = settings.lowBandwidthMode ? 'low' : (settings.audioQuality || 'auto')
     const preset = AUDIO_QUALITY_PRESETS[quality] || AUDIO_QUALITY_PRESETS.auto
-    
+
     // Apply noise suppression setting from user preferences
     return {
       ...preset,
@@ -78,7 +80,7 @@ export const useMediaConstraints = (settings = {}) => {
       echoCancellation: true,
       autoGainControl: true
     }
-  }, [settings.audioQuality, settings.noiseSuppression])
+  }, [settings.audioQuality, settings.noiseSuppression, settings.lowBandwidthMode])
 
   return {
     videoConstraints,

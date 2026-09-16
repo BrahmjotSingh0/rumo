@@ -40,7 +40,7 @@
 <header class="page-head">
   <div class="wrap">
     <h1>API reference</h1>
-    <p>REST for room lifecycle, Socket.IO for everything that happens in real time inside a meeting. There's no authentication layer; see <a href="quickstart.html#security">security notes</a> for the trust model.</p>
+    <p>REST for room lifecycle, Socket.IO for everything that happens in real time inside a meeting. There's no authentication layer; see <a href="quickstart.html#security">security notes</a> for the trust model. Embedding a meeting in your own page instead of using this API directly is covered in the <a href="https://github.com/BrahmjotSingh0/rumo/blob/main/docs/EMBEDDING.md">embedding guide</a>.</p>
   </div>
 </header>
 
@@ -58,6 +58,8 @@
         <li><a href="#media">Media state</a></li>
         <li><a href="#chat">Chat</a></li>
         <li><a href="#host-controls">Host controls</a></li>
+        <li><a href="#captions">Live captions</a></li>
+        <li><a href="#webhooks">Webhooks</a></li>
         <li><a href="#quality">Quality monitoring</a></li>
         <li><a href="#leaving">Leaving / host transfer</a></li>
         <li><a href="#errors">Errors</a></li>
@@ -73,7 +75,8 @@
         <tr><th>Field</th><th>Type</th><th>Required</th><th>Notes</th></tr>
         <tr><td><code>title</code></td><td>string</td><td>no</td><td>1-255 chars, defaults to "Quick Meeting"</td></tr>
         <tr><td><code>maxParticipants</code></td><td>integer</td><td>no</td><td>2-100, default 50</td></tr>
-        <tr><td><code>password</code></td><td>string</td><td>no</td><td>4-50 chars (stored but not currently enforced by the join flow)</td></tr>
+        <tr><td><code>password</code></td><td>string</td><td>no</td><td>4-50 chars. A PIN participants must enter before joining (bcrypt-hashed at rest) - see <code>POST /api/rooms/:id/verify-pin</code> below</td></tr>
+        <tr><td><code>scheduledAt</code></td><td>string</td><td>no</td><td>ISO 8601 timestamp. Sets <code>status</code> to "scheduled"; purely informational, the room is joinable immediately either way</td></tr>
       </table>
     </div>
     <pre><code>{
@@ -84,6 +87,9 @@
     "title": "Quick Meeting",
     "hostId": "b6b1e2b0-...",
     "maxParticipants": 50,
+    "hasPassword": false,
+    "scheduledAt": null,
+    "status": "active",
     "createdAt": "2026-01-01T00:00:00.000Z"
   }
 }</code></pre>
@@ -114,6 +120,7 @@
       <table>
         <tr><th>Endpoint</th><th>Purpose</th></tr>
         <tr><td><code>GET /api/rooms/code/:roomCode</code></td><td>Same shape as above, looked up by the human-readable room code.</td></tr>
+        <tr><td><code>POST /api/rooms/:id/verify-pin</code></td><td>Body <code>{ "pin": "..." }</code>. <code>200</code> if correct (or the room has no PIN), <code>401</code> otherwise. A courtesy check for your own pre-join UI - the same PIN is re-checked when the socket actually joins, so this alone can't be used to bypass it.</td></tr>
         <tr><td><code>GET /api/rooms</code></td><td>Paginated list of active rooms. Query params: <code>page</code> (default 1), <code>limit</code> (default 10).</td></tr>
         <tr><td><code>PATCH /api/rooms/:id/status</code></td><td>Body: <code>{ "status": "active" | "ended" | "scheduled" }</code>.</td></tr>
         <tr><td><code>DELETE /api/rooms/:id</code></td><td>Ends a room (sets status to <code>ended</code>); doesn't delete history.</td></tr>
@@ -146,8 +153,8 @@
     <div class="table-wrap">
       <table>
         <tr><th>Event (client to server)</th><th>Payload</th><th>Behavior</th></tr>
-        <tr><td><code>request-join</code></td><td><code>{ roomId, userName, audioEnabled, videoEnabled }</code></td><td>Normal join path. Joins immediately if the room is empty or not private; otherwise the caller enters the waiting room.</td></tr>
-        <tr><td><code>host-rejoin</code></td><td><code>{ roomId, userId, userName, audioEnabled, videoEnabled }</code></td><td>Used when a client's local state says it was host before (e.g. after a refresh); skips the waiting room. Client-trusted, not verified against any stored identity.</td></tr>
+        <tr><td><code>request-join</code></td><td><code>{ roomId, userName, audioEnabled, videoEnabled, pin? }</code></td><td>Normal join path. <code>pin</code> is required if the room has one set; wrong or missing gets <code>error: { message: 'Incorrect PIN' }</code>. Otherwise joins immediately if the room is empty or not private; otherwise the caller enters the waiting room.</td></tr>
+        <tr><td><code>host-rejoin</code></td><td><code>{ roomId, userId, userName, audioEnabled, videoEnabled, hostToken }</code></td><td>Reclaims host status after a reconnect, skipping the waiting room. <code>hostToken</code> is a short-lived token the server issued this client when it first became host (see <code>host-status</code> below) - a bare <code>isHost</code> claim with no valid token for this room is not trusted and is treated as a normal join instead.</td></tr>
         <tr><td><code>leave-room</code></td><td>(none)</td><td>Leaves the current room.</td></tr>
       </table>
     </div>
@@ -157,7 +164,7 @@
         <tr><th>Event (server to client)</th><th>Payload</th></tr>
         <tr><td><code>room-users</code></td><td>array of other current participants</td></tr>
         <tr><td><code>room-settings</code></td><td><code>{ isPrivate, allMuted, allCamerasOff, allScreenSharesOff, chatEnabled }</code></td></tr>
-        <tr><td><code>host-status</code></td><td><code>{ isHost: boolean }</code>: the authoritative answer to "am I host." Persist it (keyed by room) to reconnect as host later.</td></tr>
+        <tr><td><code>host-status</code></td><td><code>{ isHost: boolean, hostToken: string|null }</code>: the authoritative answer to "am I host." <code>hostToken</code> is set only when <code>isHost</code> is true - store it (keyed by room) and send it back on <code>host-rejoin</code>.</td></tr>
       </table>
     </div>
     <p>...and to everyone else already in the room: <code>user-joined</code> (the new participant's info) and <code>participant-list-updated</code> (full current list).</p>
@@ -229,6 +236,15 @@
     </div>
     <p>Legacy/simpler variants kept for compatibility: <code>mute-user</code> / <code>remove-user</code> (by <code>targetUserId</code>), <code>mute-all-users</code>.</p>
 
+    <h3 id="captions">Live captions</h3>
+    <p>Entirely client-side speech-to-text (the browser's own Web Speech API); the server only relays the resulting text to the room, it never sees or transcribes audio itself. Ephemeral - unlike chat, never stored.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event (client to server)</th><th>Payload</th><th>Broadcast to room as</th></tr>
+        <tr><td><code>send-caption</code></td><td><code>{ roomId, text }</code></td><td><code>caption-received: { socketId, userName, text, timestamp }</code></td></tr>
+      </table>
+    </div>
+
     <h3 id="quality">Quality monitoring</h3>
     <div class="table-wrap">
       <table>
@@ -243,6 +259,23 @@
 
     <h3 id="errors">Errors</h3>
     <p>Most handlers emit <code>error: { message }</code> back to the caller on failure (permission denied, room not found, etc). WebRTC-specific failures use <code>webrtc-error: { type, error }</code> instead.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 id="webhooks">Webhooks</h2>
+    <p class="section-sub">Optional, off by default. Set <code>WEBHOOK_URL</code> (and <code>WEBHOOK_SECRET</code>, to have requests signed) in the backend's environment to get a JSON <code>POST</code> for these events.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Event</th><th>Fires when</th><th>Data</th></tr>
+        <tr><td><code>room.created</code></td><td>a room is created via <code>POST /api/rooms</code></td><td><code>{ roomId, roomCode, title }</code></td></tr>
+        <tr><td><code>room.ended</code></td><td>a room's status is set to "ended"</td><td><code>{ roomId, roomCode }</code></td></tr>
+        <tr><td><code>participant.joined</code></td><td>anyone joins a room</td><td><code>{ roomId, participantId, name, isHost }</code></td></tr>
+        <tr><td><code>participant.left</code></td><td>anyone leaves</td><td><code>{ roomId, participantId, name, reason }</code></td></tr>
+      </table>
+    </div>
+    <p>Each request body looks like <code>{ "event": "...", "data": {...}, "timestamp": "..." }</code>. If <code>WEBHOOK_SECRET</code> is set, requests carry an <code>X-Rumo-Signature</code> header (hex HMAC-SHA256 of the raw body) so you can verify they came from your instance. Delivery is fire-and-forget - a slow or failing endpoint is logged and otherwise ignored.</p>
   </div>
 </section>
 </main>

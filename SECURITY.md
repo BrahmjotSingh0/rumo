@@ -27,7 +27,7 @@ This is a small project maintained in spare time, not a company with a support c
 
 Rumo has no user accounts. Some behavior that looks like a bug is actually the documented design, covered in the [README](README.md#how-hosting-works) and [security notes](README.md#security-notes):
 
-- Host status is asserted by the client and has no cryptographic backing. Whoever creates a room, or is first to join it, becomes its host. Anyone with the room link can join. This is the same trust model most link-based meeting tools use.
+- Whoever creates a room, or is first to join it, becomes its host. Anyone with the room link can join, optionally behind a PIN. This is the same trust model most link-based meeting tools use. Reclaiming host status after a reconnect does require proving it with a signed token the server issued earlier (not just a bare client-asserted flag), but there's still no account or password behind host status itself.
 - The admin panel and its API (`/admin`, `/api/settings/*`) are protected by a single shared secret (`ADMIN_SETUP_TOKEN`), not per-user accounts, since there's no account system to attach permissions to.
 - Feature flags and some host controls are enforced by hiding controls in the client rather than a hard server-side check, and are documented that way rather than sold as a security boundary.
 

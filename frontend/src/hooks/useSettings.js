@@ -15,7 +15,9 @@ const DEFAULT_SETTINGS = {
   compactMode: false,
   backgroundOptimization: true, // Enable background optimization by default
   mirrorLocalVideo: true, // Flip your own preview horizontally (does not affect what others see)
-  hideSelfView: false // Hide your own tile from your own view
+  hideSelfView: false, // Hide your own tile from your own view
+  lowBandwidthMode: false, // Forces the lowest video/audio quality preset regardless of the dropdowns
+  liveCaptions: false // Local, browser-only speech-to-text overlay (see useLiveCaptions)
 }
 
 export const useSettings = () => {

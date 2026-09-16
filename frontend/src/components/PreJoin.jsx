@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import { Mic, MicOff, Video, VideoOff, Settings } from 'lucide-react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Mic, MicOff, Video, VideoOff, Settings, Lock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import branding from '../config/branding'
 import { useTranslation } from '../i18n/I18nProvider'
@@ -12,8 +12,16 @@ const PreJoin = () => {
   const { roomId } = useParams()
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const [searchParams] = useSearchParams()
+
+  // Embedded via embed.js/RumoMeetExternalAPI (see docs/EMBEDDING.md) - a
+  // host page can pass ?embed=1&name=X to skip typing a name here and to
+  // carry embed mode through to the meeting itself.
+  const isEmbedded = searchParams.get('embed') === '1'
+  const nameFromQuery = searchParams.get('name') || ''
 
   const [name, setName] = useState(() => {
+    if (nameFromQuery) return nameFromQuery
     try {
       return localStorage.getItem(NAME_STORAGE_KEY) || ''
     } catch {
@@ -25,6 +33,9 @@ const PreJoin = () => {
   const [stream, setStream] = useState(null)
   const [loading, setLoading] = useState(false)
   const [willBeHost, setWillBeHost] = useState(false)
+  const [needsPin, setNeedsPin] = useState(false)
+  const [pin, setPin] = useState('')
+  const [pinError, setPinError] = useState('')
 
   const videoRef = useRef()
 
@@ -35,6 +46,7 @@ const PreJoin = () => {
       try {
         const response = await api.get(`/api/rooms/${roomId}`)
         setWillBeHost((response.data.data?.participantCount || 0) === 0)
+        setNeedsPin(!!response.data.data?.hasPassword)
       } catch (error) {
         console.error('Failed to fetch room info:', error)
         toast.error(t('home.errorRoomNotFound'))
@@ -90,18 +102,39 @@ const PreJoin = () => {
     }
   }
 
-  const joinMeeting = () => {
+  const joinMeeting = async () => {
     if (!name.trim()) return
+    if (needsPin && !pin.trim()) {
+      setPinError(t('prejoin.pinRequired'))
+      return
+    }
 
     setLoading(true)
+    setPinError('')
+
+    if (needsPin) {
+      try {
+        await api.post(`/api/rooms/${roomId}/verify-pin`, { pin: pin.trim() })
+      } catch (error) {
+        setLoading(false)
+        if (error.response?.status === 401) {
+          setPinError(t('prejoin.pinIncorrect'))
+        } else {
+          toast.error(t('prejoin.pinIncorrect'))
+        }
+        return
+      }
+    }
+
     // Media + name preferences read by MeetingPro once inside the call.
     sessionStorage.setItem('meetingPreferences', JSON.stringify({
       name: name.trim(),
       audio: audioEnabled,
-      video: videoEnabled
+      video: videoEnabled,
+      pin: needsPin ? pin.trim() : undefined
     }))
 
-    navigate(`/m/${roomId}`, { state: { fromPreJoin: true } })
+    navigate(`/m/${roomId}${isEmbedded ? '?embed=1' : ''}`, { state: { fromPreJoin: true } })
   }
 
   return (
@@ -173,6 +206,23 @@ const PreJoin = () => {
                       </div>
                     )}
                   </div>
+
+                  {needsPin && (
+                    <div>
+                      <div className="relative">
+                        <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="password"
+                          value={pin}
+                          onChange={(e) => { setPin(e.target.value); setPinError('') }}
+                          placeholder={t('prejoin.pinPlaceholder')}
+                          maxLength={50}
+                          className="w-full pl-11 pr-4 py-4 bg-slate-800/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                      </div>
+                      {pinError && <p className="text-sm text-red-400 mt-2">{pinError}</p>}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -241,7 +291,7 @@ const PreJoin = () => {
                 </button>
                 <button
                   onClick={joinMeeting}
-                  disabled={!name.trim() || loading}
+                  disabled={!name.trim() || loading || (needsPin && !pin.trim())}
                   className="flex-1 px-6 py-4 bg-gradient-to-r from-primary-600 to-primary-700 hover:from-primary-700 hover:to-primary-800 text-white font-medium rounded-xl transition-all duration-200 hover:scale-105 shadow-lg shadow-primary-600/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
                 >
                   {loading ? (

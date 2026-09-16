@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Mic, MicOff, Video, VideoOff, Monitor, Phone, Users, Settings, Hand, Smile } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, Monitor, Phone, Users, Settings, Hand, Smile, Circle, Square } from 'lucide-react'
 import branding from '../../config/branding'
 
 const REACTION_EMOJI = ['👍', '👏', '❤️', '😂', '🎉', '👋']
@@ -21,6 +21,8 @@ const MeetingControls = ({
   handRaised = false,
   onToggleHand,
   onSendReaction,
+  isRecording = false,
+  onToggleRecording,
   isMobile,
   settings
 }) => {
@@ -155,6 +157,20 @@ const MeetingControls = ({
               </div>
             )}
           </div>
+        )}
+
+        {features.localRecording && (
+          <button
+            onClick={onToggleRecording}
+            className={`${isMobile ? 'w-14 h-14' : 'w-12 h-12 md:w-14 md:h-14'} rounded-full md:rounded-xl transition-all duration-200 flex items-center justify-center group relative overflow-hidden ${
+              isRecording
+                ? 'bg-red-500/90 hover:bg-red-600 text-white shadow-lg shadow-red-500/25 active:scale-95'
+                : `${buttonBg} shadow-lg hover:shadow-xl active:scale-95`
+            }`}
+            title={isRecording ? 'Stop recording (saves to your device)' : 'Record my camera & mic to my device'}
+          >
+            {isRecording ? <Square size={isMobile ? 20 : 16} /> : <Circle size={isMobile ? 22 : 18} />}
+          </button>
         )}
 
         <button

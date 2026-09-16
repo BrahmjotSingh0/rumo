@@ -3,6 +3,7 @@ const { body, param, validationResult } = require('express-validator');
 const Room = require('../models/Room');
 const logger = require('../utils/logger');
 const { v4: uuidv4 } = require('uuid');
+const { fireWebhook } = require('../utils/webhooks');
 
 const router = express.Router();
 
@@ -22,21 +23,24 @@ const handleValidationErrors = (req, res, next) => {
 router.post('/', [
   body('title').optional().isLength({ min: 1, max: 255 }).trim(),
   body('maxParticipants').optional().isInt({ min: 2, max: 100 }),
-  body('password').optional().isLength({ min: 4, max: 50 })
+  body('password').optional().isLength({ min: 4, max: 50 }),
+  body('scheduledAt').optional().isISO8601().withMessage('scheduledAt must be an ISO 8601 date')
 ], handleValidationErrors, async (req, res) => {
   try {
-    const { title = 'Quick Meeting', maxParticipants = 50, password } = req.body;
+    const { title = 'Quick Meeting', maxParticipants = 50, password, scheduledAt } = req.body;
     const hostId = uuidv4(); // In production, this would come from authentication
-    
+
     const room = await Room.create({
       title,
       hostId,
       maxParticipants,
-      password
+      password,
+      scheduledAt: scheduledAt || null
     });
-    
+
     logger.info('Room created:', { roomId: room.id, roomCode: room.room_code });
-    
+    fireWebhook('room.created', { roomId: room.id, roomCode: room.room_code, title: room.title });
+
     res.status(201).json({
       success: true,
       data: {
@@ -45,6 +49,9 @@ router.post('/', [
         title: room.title,
         hostId,
         maxParticipants: room.max_participants,
+        hasPassword: !!room.password_hash,
+        scheduledAt: room.scheduled_at,
+        status: room.status,
         createdAt: room.created_at
       }
     });
@@ -82,6 +89,8 @@ router.get('/:roomId', [
         hostName: room.host_name,
         maxParticipants: room.max_participants,
         status: room.status,
+        hasPassword: !!room.password_hash,
+        scheduledAt: room.scheduled_at,
         participantCount: participants.length,
         participants: participants.map(p => ({
           id: p.id,
@@ -141,6 +150,29 @@ router.get('/code/:roomCode', [
   }
 });
 
+// Verify a room's PIN before letting PreJoin proceed. Rooms without a PIN
+// set always pass (see Room.verifyPin). This is a courtesy pre-check for
+// the UI - the socket join itself re-checks the same PIN server-side, so
+// bypassing this endpoint doesn't get you into a PIN-protected room.
+router.post('/:roomId/verify-pin', [
+  param('roomId').isUUID().withMessage('Invalid room ID format'),
+  body('pin').optional().isLength({ max: 50 })
+], handleValidationErrors, async (req, res) => {
+  try {
+    const ok = await Room.verifyPin(req.params.roomId, req.body.pin);
+    if (!ok) {
+      return res.status(401).json({ error: 'Incorrect PIN' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Error verifying room PIN:', error);
+    res.status(500).json({
+      error: 'Failed to verify PIN',
+      message: error.message
+    });
+  }
+});
+
 // Update room status
 router.patch('/:roomId/status', [
   param('roomId').isUUID().withMessage('Invalid room ID format'),
@@ -151,13 +183,17 @@ router.patch('/:roomId/status', [
     const endedAt = status === 'ended' ? new Date() : null;
     
     const room = await Room.updateStatus(req.params.roomId, status, endedAt);
-    
+
     if (!room) {
       return res.status(404).json({
         error: 'Room not found'
       });
     }
-    
+
+    if (status === 'ended') {
+      fireWebhook('room.ended', { roomId: room.id, roomCode: room.room_code });
+    }
+
     res.json({
       success: true,
       data: {
@@ -246,7 +282,8 @@ router.delete('/:roomId', [
     }
     
     logger.info('Room ended:', { roomId: room.id, roomCode: room.room_code });
-    
+    fireWebhook('room.ended', { roomId: room.id, roomCode: room.room_code });
+
     res.json({
       success: true,
       message: 'Room ended successfully',

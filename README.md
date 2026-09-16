@@ -41,11 +41,15 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 
 ## Features
 
-- **Video/audio calls**: adaptive quality, screen sharing, background blur and virtual backgrounds (upload your own or pick from an admin-managed gallery)
-- **Guest access**: enter a name and join, no account required. Whoever creates a room is its host
-- **Host controls**: mute/remove participants, co-hosts with configurable permissions, lock the meeting, waiting room for private rooms, host transfer
-- **Raise hand and emoji reactions**
+- **Video/audio calls**: adaptive quality, screen sharing, background blur and virtual backgrounds (upload your own or pick from an admin-managed gallery), low-bandwidth mode for poor connections
+- **Guest access**: enter a name and join, no account required. Whoever creates a room is its host, with a signed token so reclaiming host status after a reconnect can't just be asserted by any client
+- **Host controls**: mute/remove participants, co-hosts with configurable permissions, lock the meeting, waiting room and optional PIN for private rooms, participant cap, host transfer
+- **Schedule for later**: optional date/time on a room, with one-click "Add to Google Calendar / Outlook" links and an `.ics` download, generated entirely client-side
+- **Raise hand, emoji reactions, and live captions** (browser speech-to-text, relayed to the room - no audio ever leaves the browser for it)
+- **Local recording**: record your own camera and mic straight to your device - no recording server involved (see [How it compares](#how-it-compares) for how this differs from server-side recording)
 - **Real-time chat** with rate limiting
+- **Embeddable**: drop a meeting into your own site as an iframe, with a small JS API (`embed.js`) to control it and listen for events - see [`docs/EMBEDDING.md`](docs/EMBEDDING.md)
+- **Webhooks**: optional HMAC-signed POST requests for room/participant lifecycle events, for your own integrations
 - **Connection quality monitoring** and automatic reconnection
 - **Configurable branding**: change the name, logo, tagline, and accent color from an admin panel in the browser, or a JSON file - no rebuild required
 - **Feature flags**: turn off chat, screen sharing, co-hosts, or any other optional control for the whole instance from the admin panel
@@ -54,21 +58,22 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 
 ## How it compares
 
-Rumo trades scale for simplicity: it's a small codebase you can actually read, running as a handful of containers, built peer-to-peer so the server never touches your audio or video. Jitsi Meet and similar tools trade that simplicity for scale: more moving parts to operate, but built to handle much larger meetings.
+Rumo is built for the opposite end of the spectrum from Jitsi Meet: instead of a platform that scales to huge public calls, it's the smallest, most transparent thing you can fully own for a small team, class, or family. One script, one small codebase, minimal server, and the server never touches your audio or video.
 
 | | Rumo | Jitsi Meet |
 |---|---|---|
 | License | MIT | Apache 2.0 |
-| Self-hosting | One `docker-compose.yml`, a handful of containers (Postgres, backend, frontend) | Several services: web, videobridge, jicofo, prosody |
-| Media routing | Peer-to-peer (WebRTC mesh); the server only relays signaling | SFU (Jitsi Videobridge) |
-| Practical group size | Small calls; each participant connects directly to every other, so bandwidth grows with headcount | Scales to much larger meetings |
-| Accounts | None; there's no account system at all | None required to join either; can be integrated for moderation |
-| Recording | Not built in | Yes, via Jibri |
-| Branding | Name, logo, colors, and which features are even shown, all from an admin panel with no rebuild | Configurable, typically through `interface_config.js` and a rebuild |
-| Translations | 20 languages in one `lang.json` file, easy to extend | Many languages already, through a larger, more established translation project |
-| Mobile | Browser only | iOS and Android apps |
+| Setup | One `docker-compose.yml`, up and running in minutes | Several services to stand up and keep in sync: web, videobridge, jicofo, prosody |
+| Server footprint | Light enough for a $5 VPS for a handful of concurrent calls | Videobridge wants meaningfully more CPU/RAM per concurrent call |
+| Media routing | Peer-to-peer WebRTC mesh; the server never sees your audio or video | SFU (Jitsi Videobridge) relays media through the server |
+| Best fit | Small, private meetings where simplicity, low footprint, and full control matter most | Larger meetings and webinars where scale matters more than footprint |
+| Branding & white-labeling | Full control from an admin panel, no rebuild: name, logo, color, and which features even show up | Configurable via `interface_config.js`, needs a rebuild to apply |
+| Codebase | Small enough to read end to end in an afternoon | Large, mature, many moving parts |
+| Translations | 20 languages in one `lang.json` file, trivial to extend | Larger, more established translation project |
+| Recording | Local only: record your own camera+mic to your device, no server involved | Server-side, via Jibri, for the whole call |
+| Mobile | Browser only for now, works fine on mobile browsers | Native iOS and Android apps |
 
-Neither is "better" in general, they fit different jobs. If you want the smallest possible thing to self-host for a small team, Rumo. If you need to reliably host large public calls or webinars, Jitsi Meet or [BigBlueButton](https://bigbluebutton.org/) are more proven at that scale.
+Rumo isn't trying to out-scale Jitsi, it's trying to be the thing you can stand up in five minutes, fully understand, and fully brand as your own. If you need to reliably host large public webinars, Jitsi Meet or [BigBlueButton](https://bigbluebutton.org/) are more proven at that scale.
 
 ## Quick start (Docker)
 
@@ -157,9 +162,17 @@ To add a language, add its code and label to `languages`, then add that code to 
 
 STUN (included, free, via Google's public servers) is enough for most networks. If some participants are behind restrictive NATs/firewalls and can't connect, run your own TURN server (e.g. [coturn](https://github.com/coturn/coturn)) and set `TURN_SERVERS` (backend) plus `VITE_TURN_URL`, `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL` (frontend).
 
+### Room PINs, scheduling, and webhooks
+
+Anyone creating a room from the home page can, under "Advanced options," set a PIN, a max participant count, and/or schedule it for later (which just shows calendar links instead of joining immediately - the room is real and joinable right away either way). The same options are available from `POST /api/rooms` if you're creating rooms from your own code - see [`docs/API.md`](docs/API.md).
+
+To get notified about room/participant activity elsewhere (logging, chat-ops, your own dashboard), set `WEBHOOK_URL` in the backend's `.env` (and `WEBHOOK_SECRET` to have requests signed). Off by default - nothing is sent unless you set it.
+
 ## How hosting works
 
-There are no user accounts. Whoever creates a room, or is first to join it, becomes its host for that session, and can transfer host, mute/remove participants, and lock the room. Host status is tracked per browser tab for the life of the meeting; it isn't a secure identity system, it's the same trust model as most link-based meeting tools (anyone with the room link can join).
+There are no user accounts. Whoever creates a room, or is first to join it, becomes its host for that session, and can transfer host, mute/remove participants, and lock the room. Anyone with the room link can join (optionally behind a PIN, see [Configuration](#configuration)) - that part is the same trust model as most link-based meeting tools.
+
+Reclaiming host status after a reconnect is verified, not just asserted: the server hands a signed, short-lived token to whichever client is host, and requires it back before treating a reconnecting client as host again. It's still not an account system (there's no password or identity behind it, just proof "the server told this browser it was host a moment ago"), but it does mean another participant can't grant themselves host by editing their own browser storage.
 
 ## Project structure
 
@@ -201,6 +214,7 @@ rumo/
 ## Documentation
 
 - [`docs/API.md`](docs/API.md): full REST + Socket.IO event reference
+- [`docs/EMBEDDING.md`](docs/EMBEDDING.md): embed a meeting in your own site with `embed.js`
 - [`backend/README.md`](backend/README.md): backend setup, env vars, scripts
 - [`frontend/README.md`](frontend/README.md): frontend setup, branding, i18n, scripts
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): how to contribute, coding/docs style
@@ -210,6 +224,8 @@ rumo/
 ## Security notes
 
 - All SQL is parameterized (`pg` placeholders); no string-built queries.
+- Room PINs are bcrypt-hashed at rest, never stored or logged in plain text.
+- Host-rejoin tokens are signed with `HOST_TOKEN_SECRET` (auto-generated at boot if you don't set one); see [How hosting works](#how-hosting-works).
 - API rate limiting is on by default (`RATE_LIMIT_*` in `backend/.env.example`).
 - `helmet` sets standard security headers. Content-Security-Policy is left off by default because it's easy to break WebRTC/media/websocket connections with an overly strict one; if you enable it, test screen share, camera, and chat afterward.
 - No cookies or sessions are used (guest model, see [How hosting works](#how-hosting-works)), so `CORS_CREDENTIALS` defaults to `false`.

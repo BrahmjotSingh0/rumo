@@ -6,6 +6,7 @@ import io from 'socket.io-client'
 import { SOCKET_URL, ICE_SERVERS } from '../utils/constants'
 import { useSettings } from '../hooks/useSettings'
 import { useMediaConstraints } from '../hooks/useMediaConstraints'
+import { useLiveCaptions } from '../hooks/useLiveCaptions'
 import { BackgroundBlurProcessor, SimpleBackgroundBlurProcessor } from '../utils/backgroundBlurSegmentation'
 import { createNoiseSuppressor } from '../utils/noiseSuppression'
 import branding from '../config/branding'
@@ -49,7 +50,21 @@ const MeetingPro = () => {
     }
     return id
   })()
-  
+
+  // Embed mode: this page loaded inside an iframe via embed.js/RumoMeetExternalAPI
+  // (see docs/EMBEDDING.md). Enables the postMessage bridge below and skips
+  // navigating the iframe to the marketing site on hangup.
+  const [searchParams] = useSearchParams()
+  const isEmbedded = searchParams.get('embed') === '1'
+  const postToParent = (type, payload = {}) => {
+    if (!isEmbedded) return
+    try {
+      window.parent.postMessage({ source: 'rumo', type, payload }, '*')
+    } catch {
+      // ignore - no parent frame
+    }
+  }
+
   // Core states
   const [socket, setSocket] = useState(null)
   const [localStream, setLocalStream] = useState(null)
@@ -67,6 +82,8 @@ const MeetingPro = () => {
   const [allowParticipantScreenShare, setAllowParticipantScreenShare] = useState(true)
   const [allowSelfUnmute, setAllowSelfUnmute] = useState(true)
   const [handRaised, setHandRaised] = useState(false) // My own raised-hand state
+  const [captions, setCaptions] = useState([]) // Recent live-caption lines (self-clearing)
+  const [isRecording, setIsRecording] = useState(false) // Local (camera+mic) recording, see startRecording
 
   // Media states - use preferences from sessionStorage
   const [audioEnabled, setAudioEnabled] = useState(mediaPreferences.audio !== false)
@@ -94,6 +111,15 @@ const MeetingPro = () => {
   const { settings, updateSetting, resetSettings } = useSettings()
   const { getConstraints } = useMediaConstraints(settings)
 
+  // Live captions: browser-only speech-to-text of your own mic (see
+  // docs/EMBEDDING.md's feature list and useLiveCaptions.js). What gets
+  // recognized is relayed to the room via 'send-caption' so everyone sees
+  // it, not just you.
+  useLiveCaptions({
+    enabled: settings.liveCaptions && audioEnabled,
+    onResult: (text) => socket?.emit('send-caption', { roomId, text })
+  })
+
   // Refs
   const peerConnections = useRef(new Map())
   const socketUserId = useRef(userId)
@@ -105,6 +131,8 @@ const MeetingPro = () => {
   const isHostRef = useRef(isHost)
   const userRoleRef = useRef(userRole)
   const blurProcessorRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const recordedChunksRef = useRef([])
   const originalVideoTrackRef = useRef(null) // Store original video track
   const noiseSuppressorRef = useRef(null) // Noise suppression processor
   const originalAudioTrackRef = useRef(null) // Store original audio track
@@ -304,21 +332,28 @@ const MeetingPro = () => {
 
       // Send different event based on host status to avoid waiting room
       if (isHostRef.current) {
+        let hostToken = null
+        try {
+          hostToken = sessionStorage.getItem(`rumo_host_token_${roomId}`)
+        } catch {
+          // ignore - private browsing etc.
+        }
         currentSocket.emit('host-rejoin', {
           roomId,
           userId: socketUserId.current,
           userName: userNameRef.current,
           audioEnabled,
-          videoEnabled
+          videoEnabled,
+          hostToken
         })
       } else {
         currentSocket.emit('request-join', {
           roomId,
           userId: socketUserId.current,
           userName: userNameRef.current,
-          isHost: false,
           audioEnabled,
-          videoEnabled
+          videoEnabled,
+          pin: mediaPreferences.pin
         })
       }
 
@@ -326,6 +361,7 @@ const MeetingPro = () => {
         if (!mounted) return
 
         playYouJoined()
+        postToParent('videoConferenceJoined', { roomId })
         setParticipants(users)
         if (users.length > 0) {
           setTimeout(() => {
@@ -342,6 +378,7 @@ const MeetingPro = () => {
         if (!mounted) return
 
         playUserJoined()
+        postToParent('participantJoined', { id: user.socketId, displayName: user.name })
         setParticipants(prev => prev.find(p => p.socketId === user.socketId) ? prev : [...prev, user])
         setTimeout(() => {
           if (!mounted || !stream) return
@@ -375,6 +412,7 @@ const MeetingPro = () => {
         if (!mounted) return
 
         playUserLeft()
+        postToParent('participantLeft', { id: socketId || userId })
         setParticipants(prev => prev.filter(p => p.id !== userId))
         setRemoteStreams(prev => {
           const newMap = new Map(prev)
@@ -780,13 +818,30 @@ const MeetingPro = () => {
         toast(`${emoji} ${userName}`, { duration: 2500 })
       })
 
-      // Authoritative host status for this tab - there's no account system,
-      // so this (and 'new-host' below) is the only source of truth.
-      currentSocket.on('host-status', ({ isHost: confirmedHost }) => {
+      currentSocket.on('caption-received', ({ socketId, userName, text }) => {
         if (!mounted) return
+        const id = `${socketId}-${Date.now()}`
+        setCaptions(prev => [...prev.slice(-2), { id, userName, text }])
+        setTimeout(() => {
+          if (mounted) setCaptions(prev => prev.filter(c => c.id !== id))
+        }, 6000)
+      })
+
+      // Authoritative host status for this tab - there's no account system,
+      // so this (and 'new-host' below) is the only source of truth. hostToken
+      // is what proves that to the server again on 'host-rejoin' - a bare
+      // "isHost: true" claim on its own is no longer trusted server-side.
+      currentSocket.on('host-status', ({ isHost: confirmedHost, hostToken }) => {
+        if (!mounted) return
+        postToParent('hostStatusChanged', { isHost: confirmedHost })
         setIsHost(confirmedHost)
         try {
           sessionStorage.setItem(`rumo_host_${roomId}`, confirmedHost ? 'true' : 'false')
+          if (confirmedHost && hostToken) {
+            sessionStorage.setItem(`rumo_host_token_${roomId}`, hostToken)
+          } else if (!confirmedHost) {
+            sessionStorage.removeItem(`rumo_host_token_${roomId}`)
+          }
         } catch {
           // ignore - private browsing etc.
         }
@@ -1149,8 +1204,9 @@ const MeetingPro = () => {
         track.enabled = enabled
       })
       setAudioEnabled(enabled)
+      postToParent('audioMuteStatusChanged', { muted: !enabled })
       socket?.emit('toggle-audio', { roomId, enabled })
-      
+
       console.log('[toggleAudio] After toggle, stream tracks:', {
         audio: localStream.getAudioTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled })),
         video: localStream.getVideoTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled }))
@@ -1174,8 +1230,9 @@ const MeetingPro = () => {
         track.enabled = enabled
       })
       setVideoEnabled(enabled)
+      postToParent('videoMuteStatusChanged', { muted: !enabled })
       socket?.emit('toggle-video', { roomId, enabled })
-      
+
       console.log('[toggleVideo] After toggle, stream tracks:', {
         audio: localStream.getAudioTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled })),
         video: localStream.getVideoTracks().map(t => ({ id: t.id, label: t.label, enabled: t.enabled }))
@@ -1611,6 +1668,69 @@ const MeetingPro = () => {
     socket.emit('send-reaction', { roomId, emoji })
   }
 
+  // Local recording: saves your own camera & mic to your device via
+  // MediaRecorder. Rumo is peer-to-peer with no media server, so this is
+  // "record my side of the call," not a server-side recording of everyone -
+  // see docs/API.md and the README comparison table.
+  const startRecording = () => {
+    if (!localStreamRef.current) {
+      toast.error('No camera/mic stream to record yet')
+      return
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      toast.error('Recording is not supported in this browser')
+      return
+    }
+
+    try {
+      recordedChunksRef.current = []
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : 'video/webm'
+      const recorder = new MediaRecorder(localStreamRef.current, { mimeType })
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordedChunksRef.current.push(event.data)
+      }
+
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' })
+        const link = document.createElement('a')
+        link.href = URL.createObjectURL(blob)
+        link.download = `rumo-recording-${new Date().toISOString().replace(/[:.]/g, '-')}.webm`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(link.href)
+      }
+
+      recorder.start()
+      mediaRecorderRef.current = recorder
+      setIsRecording(true)
+      toast.success('Recording your camera & mic - saved to your device when you stop')
+    } catch (error) {
+      console.error('Failed to start recording:', error)
+      toast.error('Could not start recording')
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    mediaRecorderRef.current = null
+    setIsRecording(false)
+    toast.success('Recording saved to your downloads')
+  }
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording()
+    } else {
+      startRecording()
+    }
+  }
+
   const handleApproveJoin = (targetSocketId) => {
     if (socket) {
       socket.emit('approve-join', { targetSocketId })
@@ -1631,7 +1751,12 @@ const MeetingPro = () => {
 
   const leaveMeeting = () => {
     addDebugLog('Leaving meeting - starting cleanup...', 'info')
-    
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+      mediaRecorderRef.current = null
+    }
+
     // Stop all local media tracks (camera and mic)
     if (localStreamRef.current) {
       addDebugLog(`Stopping ${localStreamRef.current.getTracks().length} local tracks`, 'info')
@@ -1714,8 +1839,60 @@ const MeetingPro = () => {
     
     addDebugLog('✅ Cleanup completed', 'success')
     playUserLeft()
-    setTimeout(() => navigate('/'), 300)
+    postToParent('readyToClose', {})
+    if (!isEmbedded) {
+      setTimeout(() => navigate('/'), 300)
+    }
   }
+
+  // Embed control API: a parent page (see docs/EMBEDDING.md) can drive basic
+  // actions via postMessage without building its own call UI. Re-subscribes
+  // every render so it always calls the latest versions of these handlers -
+  // cheap, since it's a no-op outside embed mode.
+  useEffect(() => {
+    if (!isEmbedded) return
+
+    const handleParentMessage = (event) => {
+      if (event.source !== window.parent) return
+      const data = event.data
+      if (!data || data.source !== 'rumo' || data.type !== 'execute') return
+
+      switch (data.command) {
+        case 'toggleAudio':
+          toggleAudio()
+          break
+        case 'toggleVideo':
+          toggleVideo()
+          break
+        case 'toggleScreenShare':
+          toggleScreenShare()
+          break
+        case 'raiseHand':
+          if (!handRaised) toggleHand()
+          break
+        case 'lowerHand':
+          if (handRaised) toggleHand()
+          break
+        case 'sendReaction':
+          if (data.args?.[0]) sendReaction(data.args[0])
+          break
+        case 'startRecording':
+          if (!isRecording) startRecording()
+          break
+        case 'stopRecording':
+          if (isRecording) stopRecording()
+          break
+        case 'hangup':
+          leaveMeeting()
+          break
+        default:
+          break
+      }
+    }
+
+    window.addEventListener('message', handleParentMessage)
+    return () => window.removeEventListener('message', handleParentMessage)
+  })
 
   // Handle responsive design
   useEffect(() => {
@@ -2564,6 +2741,16 @@ const MeetingPro = () => {
             setPinnedVideo={setPinnedVideo}
             pinnedVideo={pinnedVideo}
           />
+
+          {settings.liveCaptions && captions.length > 0 && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 max-w-2xl w-[90%] space-y-1 pointer-events-none">
+              {captions.map((c) => (
+                <div key={c.id} className="bg-black/70 text-white text-sm sm:text-base px-4 py-2 rounded-lg text-center">
+                  <span className="font-semibold">{c.userName}: </span>{c.text}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}
@@ -2613,11 +2800,13 @@ const MeetingPro = () => {
           handRaised={handRaised}
           onToggleHand={toggleHand}
           onSendReaction={sendReaction}
+          isRecording={isRecording}
+          onToggleRecording={toggleRecording}
           isMobile={isMobile}
           settings={settings}
         />
       </div>
-      
+
       <SettingsPanel
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}

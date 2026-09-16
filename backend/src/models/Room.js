@@ -1,17 +1,31 @@
+const bcrypt = require('bcryptjs');
 const database = require('../config/database');
 
 class Room {
-  static async create({ title, hostId, maxParticipants = 50, password = null }) {
+  static async create({ title, hostId, maxParticipants = 50, password = null, scheduledAt = null }) {
     const roomCode = this.generateRoomCode();
+    const passwordHash = password ? await bcrypt.hash(password, 10) : null;
+    const status = scheduledAt ? 'scheduled' : 'active';
     const query = `
-      INSERT INTO "rooms" ("room_code", "title", "host_id", "max_participants", "password_hash")
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO "rooms" ("room_code", "title", "host_id", "max_participants", "password_hash", "scheduled_at", "status")
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
 
-    const values = [roomCode, title, hostId, maxParticipants, password];
+    const values = [roomCode, title, hostId, maxParticipants, passwordHash, scheduledAt, status];
     const result = await database.query(query, values);
     return result.rows[0];
+  }
+
+  // No PIN set on the room => open, anyone can join. PIN set => must match.
+  static async verifyPin(roomId, pin) {
+    const query = `SELECT "password_hash" FROM "rooms" WHERE "id" = $1`;
+    const result = await database.query(query, [roomId]);
+    const room = result.rows[0];
+    if (!room) return false;
+    if (!room.password_hash) return true;
+    if (!pin) return false;
+    return bcrypt.compare(pin, room.password_hash);
   }
 
   // host_name reflects whoever currently holds host status in room_participants,

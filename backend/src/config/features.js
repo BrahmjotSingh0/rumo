@@ -18,7 +18,9 @@ const FEATURE_DEFAULTS = {
   lockMeeting: true,
   layoutSwitch: true,
   raiseHand: true,
-  reactions: true
+  reactions: true,
+  liveCaptions: true,
+  localRecording: true
 };
 
 function withFeatureDefaults(features) {

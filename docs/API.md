@@ -4,6 +4,8 @@ Rumo's backend exposes a small REST API for room lifecycle (create/look up a roo
 
 Base URL: whatever `VITE_API_URL`/`CORS_ORIGIN` point at (`http://localhost:5000` by default).
 
+Embedding a meeting in your own page (rather than calling this API directly) is covered separately in [`docs/EMBEDDING.md`](EMBEDDING.md).
+
 ## REST
 
 ### `POST /api/rooms`
@@ -15,7 +17,8 @@ Create a room.
 |---|---|---|---|
 | `title` | string | no | 1-255 chars, defaults to `"Quick Meeting"` |
 | `maxParticipants` | integer | no | 2-100, default 50 |
-| `password` | string | no | 4-50 chars (stored but not currently enforced by the join flow, see note below) |
+| `password` | string | no | 4-50 chars. A PIN participants must enter before joining (bcrypt-hashed at rest); see `POST /api/rooms/:id/verify-pin` and the `request-join` socket event below |
+| `scheduledAt` | string | no | ISO 8601 timestamp. Sets `status` to `scheduled` instead of `active`; purely informational; the room is joinable immediately either way, this doesn't gate anything |
 
 **Response** `201`
 ```json
@@ -27,12 +30,15 @@ Create a room.
     "title": "Quick Meeting",
     "hostId": "b6b1e2b0-...",
     "maxParticipants": 50,
+    "hasPassword": false,
+    "scheduledAt": null,
+    "status": "active",
     "createdAt": "2026-01-01T00:00:00.000Z"
   }
 }
 ```
 
-Use `data.id` as the room identifier everywhere else (URLs, the other endpoints, Socket.IO's `roomId`).
+Use `data.id` as the room identifier everywhere else (URLs, the other endpoints, Socket.IO's `roomId`). This same endpoint is how an integrator would create rooms programmatically from their own backend/app rather than pointing people at Rumo's own home page.
 
 ### `GET /api/rooms/:id`
 
@@ -50,6 +56,8 @@ Room info + live participant count. `:id` is a UUID.
     "hostName": "Ann",
     "maxParticipants": 50,
     "status": "active",
+    "hasPassword": false,
+    "scheduledAt": null,
     "participantCount": 2,
     "participants": [
       { "id": "...", "name": "Ann", "isHost": true, "joinedAt": "..." }
@@ -59,11 +67,17 @@ Room info + live participant count. `:id` is a UUID.
   }
 }
 ```
-`404` if the room doesn't exist. `hostName` reflects whoever currently holds host status (it can change via host transfer), not the original creator.
+`404` if the room doesn't exist. `hostName` reflects whoever currently holds host status (it can change via host transfer), not the original creator. `hasPassword` tells a client whether to prompt for a PIN before joining, without exposing the hash itself.
 
 ### `GET /api/rooms/code/:roomCode`
 
 Same shape as above, looked up by the human-readable room code instead of the UUID.
+
+### `POST /api/rooms/:id/verify-pin`
+
+Body: `{ "pin": "..." }` (omit or send empty if the room has no PIN). Returns `200 { "success": true }` if correct (or the room has no PIN at all), `401 { "error": "Incorrect PIN" }` otherwise.
+
+This is a courtesy check for building your own pre-join UI (it's what Rumo's own PreJoin screen calls). It doesn't grant access by itself - the same PIN is re-checked server-side when the socket actually joins (`request-join` below), so there's no way to skip it by only calling this endpoint.
 
 ### `GET /api/rooms`
 
@@ -103,7 +117,7 @@ or, once something has been saved:
   "logoIcon": "/uploads/branding/....svg",
   "logoFull": "/uploads/branding/....svg",
   "primaryColor": "#2E5BFF",
-  "features": { "chat": true, "screenShare": true, "virtualBackgrounds": true, "coHost": true, "waitingRoom": true, "muteAll": true, "disableAllCameras": true, "disableAllScreenShares": true, "lockMeeting": true, "layoutSwitch": true, "raiseHand": true, "reactions": true },
+  "features": { "chat": true, "screenShare": true, "virtualBackgrounds": true, "coHost": true, "waitingRoom": true, "muteAll": true, "disableAllCameras": true, "disableAllScreenShares": true, "lockMeeting": true, "layoutSwitch": true, "raiseHand": true, "reactions": true, "liveCaptions": true, "localRecording": true },
   "backgroundPresets": [{ "id": "uuid", "url": "/uploads/backgrounds/....jpg", "name": "Office" }],
   "updatedAt": "2026-01-01T00:00:00.000Z"
 }
@@ -154,6 +168,26 @@ Requires header `x-admin-token: <ADMIN_SETUP_TOKEN>`. Removes that preset (and i
 
 ---
 
+## Webhooks
+
+Optional, off by default. Set `WEBHOOK_URL` (and, to have requests signed, `WEBHOOK_SECRET`) in the backend's environment and Rumo will `POST` a JSON body for these events as they happen:
+
+| Event | Fires when | Data |
+|---|---|---|
+| `room.created` | a room is created via `POST /api/rooms` | `{ roomId, roomCode, title }` |
+| `room.ended` | a room's status is set to `ended` (via the `PATCH`/`DELETE` endpoints above) | `{ roomId, roomCode }` |
+| `participant.joined` | anyone joins a room over Socket.IO | `{ roomId, participantId, name, isHost }` |
+| `participant.left` | anyone leaves (disconnects, is kicked, closes the tab) | `{ roomId, participantId, name, reason }` |
+
+Request body:
+```json
+{ "event": "participant.joined", "data": { "...": "..." }, "timestamp": "2026-01-01T00:00:00.000Z" }
+```
+
+If `WEBHOOK_SECRET` is set, each request carries `X-Rumo-Signature: <hex hmac-sha256 of the raw body>` so you can verify it came from your own instance. Delivery is fire-and-forget: a slow or failing webhook endpoint is logged and otherwise ignored, it never blocks or fails the underlying action.
+
+---
+
 ## Socket.IO
 
 Connect to the same origin as the REST API. All real-time behavior (signaling, chat, host controls, the waiting room) goes through this connection. `roomId` below is always the UUID from `POST /api/rooms`.
@@ -164,8 +198,8 @@ There are no accounts: every participant is identified by whatever `userName` th
 
 | Event (client → server) | Payload | Behavior |
 |---|---|---|
-| `request-join` | `{ roomId, userName, audioEnabled, videoEnabled }` | Normal join path. If the room is empty or not marked private, joins immediately. Otherwise the caller is put in a waiting room (see below) until a host/co-host approves. |
-| `host-rejoin` | `{ roomId, userId, userName, audioEnabled, videoEnabled }` | Used when a client's local state says it was host before (e.g. after a page refresh); skips the waiting room. This is **client-trusted**, not verified against any stored identity, the security model here is the same as most link-based meeting tools. |
+| `request-join` | `{ roomId, userName, audioEnabled, videoEnabled, pin? }` | Normal join path. `pin` is required if the room has one set (see `POST /api/rooms`); an incorrect or missing PIN gets `error: { message: 'Incorrect PIN' }` and no join happens. Otherwise, if the room is empty or not marked private, joins immediately - if private and non-empty, the caller is put in a waiting room (see below) until a host/co-host approves. |
+| `host-rejoin` | `{ roomId, userId, userName, audioEnabled, videoEnabled, hostToken }` | Reclaims host status after a reconnect, skipping the waiting room. `hostToken` is a short-lived token the server handed this client the moment it first became host (see `host-status` below) - a bare `isHost` claim with no valid token for this room is **not** trusted and is treated as a normal join instead. |
 | `leave-room` | (none) | Leaves the current room. |
 
 On a successful join the server emits, to the joining socket only:
@@ -174,7 +208,7 @@ On a successful join the server emits, to the joining socket only:
 |---|---|
 | `room-users` | array of other current participants |
 | `room-settings` | `{ isPrivate, allMuted, allCamerasOff, allScreenSharesOff, chatEnabled }` |
-| `host-status` | `{ isHost: boolean }`, **the authoritative answer to "am I host"**. Persist it (keyed by room) if you need to reconnect-as-host later. |
+| `host-status` | `{ isHost: boolean, hostToken: string \| null }`, **the authoritative answer to "am I host"**. `hostToken` is only set when `isHost` is true - store it (keyed by room) and send it back on `host-rejoin` above. It's also re-sent (privately, to the new host's socket only) after a host transfer. |
 
 ...and to everyone else already in the room:
 
@@ -260,6 +294,16 @@ Legacy/simpler variants (kept for compatibility, prefer the ones above): `mute-u
 | `raise-hand` | `{ roomId }` | `hand-raised: { socketId, userName, timestamp }` |
 | `lower-hand` | `{ roomId, targetSocketId? }` | `hand-lowered: { socketId, timestamp }`. Anyone can lower their own hand; lowering someone else's requires the "manage participants" tier above |
 | `send-reaction` | `{ roomId, emoji }` | `reaction-received: { socketId, userName, emoji, timestamp }`. `emoji` must be one of 👍 👏 ❤️ 😂 🎉 👋 - anything else is silently dropped |
+
+### Live captions
+
+Entirely client-side speech-to-text (the browser's own Web Speech API - see `frontend/src/hooks/useLiveCaptions.js`); the server only relays the resulting text, it never sees or transcribes audio itself.
+
+| Event (client → server) | Payload | Broadcast to room as |
+|---|---|---|
+| `send-caption` | `{ roomId, text }` | `caption-received: { socketId, userName, text, timestamp }` |
+
+Ephemeral by design - unlike chat, captions are never stored, just relayed live to whoever is currently in the room.
 
 ### Quality monitoring
 

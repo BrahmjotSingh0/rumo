@@ -26,6 +26,8 @@ export const DEFAULT_FEATURES = {
   layoutSwitch: true,
   raiseHand: true,
   reactions: true,
+  liveCaptions: true,
+  localRecording: true,
 };
 
 const branding = {
