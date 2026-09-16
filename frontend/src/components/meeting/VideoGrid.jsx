@@ -283,9 +283,10 @@ const VideoGrid = ({
                 isCoHost={true}
                 settings={settings}
                 totalTiles={panelTotal}
+                onPin={handlePin}
               />
             ))}
-            
+
             {/* Main Host (center, larger) */}
             {hosts.map((host, index) => (
               <VideoTile
@@ -297,9 +298,10 @@ const VideoGrid = ({
                 settings={settings}
                 totalTiles={panelTotal}
                 isMainHost={true}
+                onPin={handlePin}
               />
             ))}
-            
+
             {/* Right co-hosts */}
             {panelCoHosts.slice(Math.floor(panelCoHosts.length / 2)).map((coHost, index) => (
               <VideoTile
@@ -310,6 +312,7 @@ const VideoGrid = ({
                 isCoHost={true}
                 settings={settings}
                 totalTiles={panelTotal}
+                onPin={handlePin}
               />
             ))}
           </div>
@@ -340,6 +343,7 @@ const VideoGrid = ({
                     isHost={false}
                     settings={settings}
                     totalTiles={visibleInterviewees.length}
+                    onPin={handlePin}
                   />
                   {showMoreOverlay && (
                     <div className="absolute inset-0 bg-black/95 rounded-xl flex items-center justify-center backdrop-blur-md ring-1 ring-gray-600/50">
@@ -405,13 +409,13 @@ const VideoGrid = ({
           <div className={`${settings.compactMode ? 'h-[30%]' : 'h-[38%]'} flex-shrink-0 bg-blue-950/25 rounded-2xl p-5 border border-blue-500/20 shadow-2xl`}>
             <div className="h-full flex gap-4 justify-center items-center">
               {panelCoHosts.slice(0, Math.floor(panelCoHosts.length / 2)).map((coHost, index) => (
-                <VideoTile key={coHost.isYou ? `webinar-cohost-${index}` : coHost.socketId} participant={coHost} isHost={false} isCoHost={true} settings={settings} />
+                <VideoTile key={coHost.isYou ? `webinar-cohost-${index}` : coHost.socketId} participant={coHost} isHost={false} isCoHost={true} settings={settings} onPin={handlePin} />
               ))}
               {hosts.map((host, index) => (
-                <VideoTile key={host.isYou ? `webinar-host-${index}` : host.socketId} participant={host} isHost={true} isCoHost={false} settings={settings} isMainHost={true} />
+                <VideoTile key={host.isYou ? `webinar-host-${index}` : host.socketId} participant={host} isHost={true} isCoHost={false} settings={settings} isMainHost={true} onPin={handlePin} />
               ))}
               {panelCoHosts.slice(Math.floor(panelCoHosts.length / 2)).map((coHost, index) => (
-                <VideoTile key={coHost.isYou ? `webinar-cohost-right-${index}` : coHost.socketId} participant={coHost} isHost={false} isCoHost={true} settings={settings} />
+                <VideoTile key={coHost.isYou ? `webinar-cohost-right-${index}` : coHost.socketId} participant={coHost} isHost={false} isCoHost={true} settings={settings} onPin={handlePin} />
               ))}
             </div>
           </div>
@@ -426,7 +430,7 @@ const VideoGrid = ({
               <div className="grid grid-cols-5 xl:grid-cols-6 gap-3">
                 {allAudience.map((person, index) => (
                   <div key={person.isYou ? `webinar-audience-${index}` : person.socketId} className="aspect-video">
-                    <VideoTile participant={person} isHost={false} settings={settings} />
+                    <VideoTile participant={person} isHost={false} settings={settings} onPin={handlePin} />
                   </div>
                 ))}
               </div>
@@ -494,8 +498,15 @@ const VideoGrid = ({
             const isScreen = video.type.includes('screen')
             
             return (
-              <div key={`${video.type}-${index}`} className={isMobile ? 'flex flex-col' : 'relative'}>
+              <div key={`${video.type}-${index}`} className={`group ${isMobile ? 'flex flex-col' : 'relative'}`}>
                 <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-video">
+                  <button
+                    onClick={() => handlePin(video)}
+                    className={`absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-black/60 text-white transition-opacity ${isMobile ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'}`}
+                    title={isScreen ? 'Pin this screen share' : `Pin ${video.name}`}
+                  >
+                    <Pin size={14} />
+                  </button>
                   {/* Video or Screen Share */}
                   {video.stream ? (
                     <>
@@ -913,7 +924,7 @@ const VideoGrid = ({
 }
 
 // Interview Mode Video Tile Component
-const VideoTile = ({ participant, isHost: isTileHost, isCoHost, isMainHost, settings }) => {
+const VideoTile = ({ participant, isHost: isTileHost, isCoHost, isMainHost, settings, onPin }) => {
   const videoRef = useRef()
 
   useEffect(() => {
@@ -953,7 +964,16 @@ const VideoTile = ({ participant, isHost: isTileHost, isCoHost, isMainHost, sett
   }
 
   return (
-    <div className={`${getSizeClass()} aspect-video relative rounded-xl overflow-hidden shadow-2xl ${getRingClass()} transition-all duration-300 hover:scale-[1.02]`}>
+    <div className={`group ${getSizeClass()} aspect-video relative rounded-xl overflow-hidden shadow-2xl ${getRingClass()} transition-all duration-300 hover:scale-[1.02]`}>
+      {onPin && (
+        <button
+          onClick={() => onPin(participant)}
+          className="absolute top-2 right-2 z-10 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+          title={`Pin ${participant.name}`}
+        >
+          <Pin size={14} />
+        </button>
+      )}
       {participant.videoEnabled ? (
         <video
           key={participant.isYou ? `tile-${participant.streamVersion}` : `tile-${participant.socketId}`}
