@@ -1,9 +1,18 @@
-import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical, Hand, BarChart3, Plus, Trash2 } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, Users, MessageCircle, X, Crown, Shield, MoreVertical, Hand, BarChart3, Plus, Trash2, Paperclip, FileText, Download } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import ParticipantContextMenu from './components/ParticipantContextMenu'
 import HostSettings from './components/HostSettings'
 import branding from '../../config/branding'
+import { API_BASE_URL } from '../../utils/constants'
+
+const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
+const isImageFile = (name = '') => IMAGE_EXTENSIONS.some(ext => name.toLowerCase().endsWith(ext))
+const formatFileSize = (bytes) => {
+  if (!bytes) return ''
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 const MeetingSidebar = ({
   sidebarOpen,
@@ -21,6 +30,7 @@ const MeetingSidebar = ({
   newMessage,
   setNewMessage,
   sendMessage,
+  sendFile,
   isMobile,
   settings,
   socket, // We'll need this for emitting events
@@ -635,17 +645,56 @@ const MeetingSidebar = ({
                         <span className="text-blue-500 text-sm font-medium truncate">{message.userName}</span>
                         <span className={`${textSecondaryClass} text-xs flex-shrink-0 ml-2`}>{new Date(message.timestamp).toLocaleTimeString()}</span>
                       </div>
-                      <p className={`${textClass} text-sm break-words`}>{message.message}</p>
+                      {message.type === 'file' ? (
+                        isImageFile(message.fileName) ? (
+                          <a href={`${API_BASE_URL}${message.fileUrl}`} target="_blank" rel="noopener noreferrer" className="block mt-1">
+                            <img src={`${API_BASE_URL}${message.fileUrl}`} alt={message.fileName} className="max-w-full max-h-48 rounded-lg border border-gray-600/30" />
+                          </a>
+                        ) : (
+                          <a
+                            href={`${API_BASE_URL}${message.fileUrl}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`flex items-center gap-2 mt-1 p-2 rounded-lg ${itemBgClass} hover:ring-1 hover:ring-blue-500 transition-all`}
+                          >
+                            <FileText size={20} className="text-blue-400 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className={`${textClass} text-sm truncate`}>{message.fileName}</p>
+                              {message.fileSize ? <p className={`${textSecondaryClass} text-xs`}>{formatFileSize(message.fileSize)}</p> : null}
+                            </div>
+                            <Download size={16} className={`${textSecondaryClass} flex-shrink-0`} />
+                          </a>
+                        )
+                      ) : (
+                        <p className={`${textClass} text-sm break-words`}>{message.message}</p>
+                      )}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
-            
+
             {/* Chat Input - Only show if chat is enabled */}
             {roomSettings.allowChat ? (
               <div className={`p-4 border-t ${borderClass}`}>
                 <div className="flex space-x-2">
+                  {branding.features.fileSharing && sendFile && (
+                    <>
+                      <input
+                        type="file"
+                        id="chat-file-input"
+                        className="hidden"
+                        onChange={(e) => { const file = e.target.files?.[0]; if (file) sendFile(file); e.target.value = '' }}
+                      />
+                      <label
+                        htmlFor="chat-file-input"
+                        className={`px-3 py-2 ${inputBgClass} ${textSecondaryClass} hover:${textClass} rounded-lg cursor-pointer flex items-center transition-colors`}
+                        title="Attach a file"
+                      >
+                        <Paperclip size={18} />
+                      </label>
+                    </>
+                  )}
                   <input
                     type="text"
                     value={newMessage}

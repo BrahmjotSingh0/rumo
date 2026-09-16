@@ -494,7 +494,7 @@ class SocketService {
     }
   }
 
-  handleSendMessage(socket, { roomId, message, userName, profilePicture, type = 'text' }) {
+  handleSendMessage(socket, { roomId, message, userName, profilePicture, type = 'text', fileUrl, fileName, fileSize }) {
     try {
       // Rate limiting
       const stats = this.connectionStats.get(socket.id);
@@ -517,13 +517,22 @@ class SocketService {
         stats.messageCount++;
       }
 
+      // fileUrl must point at this server's own /uploads (where the upload
+      // endpoint puts files), never an arbitrary external URL.
+      const isFileMessage = type === 'file' && typeof fileUrl === 'string' && fileUrl.startsWith('/uploads/chat/');
+
       const chatMessage = {
         id: uuidv4(),
         userId: this.users.get(socket.id)?.id,
         userName,
         profilePicture: profilePicture || null,
-        message: message.substring(0, 500), // Limit message length
-        type,
+        message: String(message || '').substring(0, 500), // Limit message length
+        type: isFileMessage ? 'file' : 'text',
+        ...(isFileMessage && {
+          fileUrl,
+          fileName: String(fileName || 'file').slice(0, 255),
+          fileSize: Number.isFinite(fileSize) ? fileSize : null
+        }),
         timestamp: new Date()
       };
 

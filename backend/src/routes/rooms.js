@@ -1,11 +1,47 @@
 const express = require('express');
+const path = require('path');
+const crypto = require('crypto');
+const fs = require('fs');
+const multer = require('multer');
 const { body, param, validationResult } = require('express-validator');
 const Room = require('../models/Room');
 const logger = require('../utils/logger');
+const config = require('../config/environment');
 const { v4: uuidv4 } = require('uuid');
 const { fireWebhook } = require('../utils/webhooks');
 
 const router = express.Router();
+
+// Files shared in chat. Same trust level as chat itself (no accounts, so no
+// per-user ownership) - anyone in a room can already send arbitrary text,
+// this just extends that to small files. Not virus-scanned; self-hosters
+// running this for the public should be aware files are served back as-is.
+const ALLOWED_CHAT_FILE_TYPES = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'application/pdf': '.pdf',
+  'text/plain': '.txt',
+  'application/zip': '.zip',
+  'application/msword': '.doc',
+  'application/vnd.ms-excel': '.xls',
+  'application/vnd.ms-powerpoint': '.ppt',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx'
+};
+const chatUploadDir = path.join(config.upload.uploadPath, 'chat');
+fs.mkdirSync(chatUploadDir, { recursive: true });
+
+const uploadChatFile = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, chatUploadDir),
+    filename: (req, file, cb) => cb(null, `${crypto.randomUUID()}${ALLOWED_CHAT_FILE_TYPES[file.mimetype] || ''}`)
+  }),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, Boolean(ALLOWED_CHAT_FILE_TYPES[file.mimetype]))
+});
 
 // Validation middleware
 const handleValidationErrors = (req, res, next) => {
@@ -171,6 +207,39 @@ router.post('/:roomId/verify-pin', [
       message: error.message
     });
   }
+});
+
+// Upload a file to share in a room's chat. Returns a URL to pass as
+// fileUrl in the 'send-message' socket event (type: 'file').
+router.post('/:roomId/files', [
+  param('roomId').isUUID().withMessage('Invalid room ID format')
+], handleValidationErrors, (req, res) => {
+  uploadChatFile.single('file')(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded, or the file type is not supported' });
+    }
+
+    try {
+      const room = await Room.findById(req.params.roomId);
+      if (!room) {
+        fs.unlink(req.file.path, () => {});
+        return res.status(404).json({ error: 'Room not found' });
+      }
+
+      res.status(201).json({
+        url: `/uploads/chat/${req.file.filename}`,
+        name: req.file.originalname,
+        size: req.file.size,
+        mimeType: req.file.mimetype
+      });
+    } catch (error) {
+      logger.error('Error uploading chat file:', error);
+      res.status(500).json({ error: 'Failed to upload file' });
+    }
+  });
 });
 
 // Update room status

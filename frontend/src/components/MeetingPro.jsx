@@ -1659,6 +1659,34 @@ const MeetingPro = () => {
     }
   }
 
+  const sendFile = async (file) => {
+    if (!file || !socket) return
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error('File is too large (max 15MB)')
+      return
+    }
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await api.post(`/api/rooms/${roomId}/files`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      const { url, name, size } = response.data
+      socket.emit('send-message', {
+        roomId,
+        message: name,
+        userName,
+        type: 'file',
+        fileUrl: url,
+        fileName: name,
+        fileSize: size
+      })
+    } catch (error) {
+      console.error('File upload failed:', error)
+      toast.error(error.response?.data?.error || 'Failed to upload file. Its type may not be supported.')
+    }
+  }
+
   const copyInviteLink = () => {
     const inviteLink = `${window.location.origin}/room/${roomId}`
     navigator.clipboard.writeText(inviteLink).then(() => {
@@ -2812,6 +2840,7 @@ const MeetingPro = () => {
           newMessage={newMessage}
           setNewMessage={setNewMessage}
           sendMessage={sendMessage}
+          sendFile={sendFile}
           isMobile={isMobile}
           settings={settings}
           socket={socket}
