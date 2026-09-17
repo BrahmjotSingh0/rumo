@@ -72,6 +72,7 @@ Spin it up on your own server and share the link. Built with WebRTC for peer-to-
 - **Built-in i18n**: every UI string lives in one `lang.json`, add a language by adding a column
 - **One-command HTTPS**: point a domain at your server and the installer sets up a reverse proxy with automatic, auto-renewing certificates
 - **Installable**: add it to your home screen/dock as a PWA - the app shell installs and updates itself, the API and Socket.IO connection are always live (nothing meeting-related is cached for offline use)
+- **Update notices**: a small, dismissible "update available" notice on the landing page and in `/admin` when a newer release exists, from a daily anonymous check against GitHub - no data about your instance is sent, and it's one setting to turn off entirely
 
 ## How it compares
 

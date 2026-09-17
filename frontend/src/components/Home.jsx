@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import Button from './ui/Button';
 import Input from './ui/Input';
 import LanguageSwitcher from './ui/LanguageSwitcher';
+import UpdateBanner from './ui/UpdateBanner';
 import branding, { DEFAULT_TAGLINE, DEFAULT_DESCRIPTION } from '../config/branding';
 import { useTranslation } from '../i18n/I18nProvider';
 import api from '../utils/api';
@@ -152,6 +153,7 @@ const Home = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-900">
+      <UpdateBanner />
       {/* Header */}
       <header className="border-b border-gray-800">
         <div className="max-w-5xl mx-auto flex items-center justify-between px-4 sm:px-6 py-4">

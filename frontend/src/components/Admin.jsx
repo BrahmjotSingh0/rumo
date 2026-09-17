@@ -4,6 +4,7 @@ import { IconLock as Lock } from '@tabler/icons-react'
 import toast from 'react-hot-toast';
 import Button from './ui/Button';
 import Input from './ui/Input';
+import VersionNotice from './ui/VersionNotice';
 import branding from '../config/branding';
 import { applyTheme } from '../utils/theme';
 import { API_BASE_URL } from '../utils/constants';
@@ -250,6 +251,8 @@ const Admin = () => {
             Back to app
           </Link>
         </div>
+
+        <VersionNotice />
 
         <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-4 sm:p-6 space-y-6">
           <div>

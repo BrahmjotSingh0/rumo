@@ -16,6 +16,7 @@ const socketService = require('./src/services/socketService');
 const roomRoutes = require('./src/routes/rooms');
 const healthRoutes = require('./src/routes/health');
 const settingsRoutes = require('./src/routes/settings');
+const versionRoutes = require('./src/routes/version');
 
 const app = express();
 const server = http.createServer(app);
@@ -94,6 +95,7 @@ app.use('/uploads', express.static(path.resolve(config.upload.uploadPath)));
 // Routes
 app.use('/api/rooms', roomRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/version', versionRoutes);
 app.use('/health', healthRoutes);
 
 // Initialize Socket.IO service

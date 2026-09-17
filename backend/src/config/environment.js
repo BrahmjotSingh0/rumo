@@ -77,6 +77,12 @@ const config = {
     format: (process.env.WEBHOOK_FORMAT || 'generic').toLowerCase()
   },
 
+  // Checks GitHub's public releases API (anonymous, no data about this
+  // instance sent) once a day so the admin panel and landing page can show
+  // "an update is available" - see src/utils/versionCheck.js. On by
+  // default; set to false if you'd rather this server never phone out.
+  versionCheckEnabled: process.env.VERSION_CHECK_ENABLED !== 'false',
+
   // Logging Configuration
   logging: {
     level: process.env.LOG_LEVEL || 'info',

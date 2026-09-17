@@ -108,6 +108,16 @@ Aggregate stats for a room (participant/message counts, duration) from the `room
 
 Health check: DB connectivity, memory/CPU, uptime. Used by Docker's healthcheck and load balancers.
 
+### `GET /api/version`
+
+Public. What the admin panel and landing page poll for the small "update available" notice.
+
+**Response** `200`
+```json
+{ "current": "1.0.0", "latest": "1.1.0", "updateAvailable": true, "releaseUrl": "https://github.com/BrahmjotSingh0/rumo/releases/tag/v1.1.0" }
+```
+`latest`/`releaseUrl` are `null` if the check against GitHub's releases API hasn't succeeded yet (cached for 24h once it does) or `VERSION_CHECK_ENABLED=false`. Never sends any data about this instance - a plain unauthenticated request to GitHub's public API, made by the backend itself, not by each visitor's browser.
+
 ### `GET /api/settings/branding`
 
 Public. Current branding settings saved through the admin panel, if any.

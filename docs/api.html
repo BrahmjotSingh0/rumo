@@ -130,6 +130,7 @@
         <tr><td><code>DELETE /api/rooms/:id</code></td><td>Ends a room (sets status to <code>ended</code>); doesn't delete history.</td></tr>
         <tr><td><code>GET /api/rooms/:id/analytics</code></td><td>Aggregate stats (participant/message counts, duration) from the <code>room_analytics</code> view.</td></tr>
         <tr><td><code>GET /health</code></td><td>Health check: DB connectivity, memory/CPU, uptime. Used by Docker's healthcheck and load balancers.</td></tr>
+        <tr><td><code>GET /api/version</code></td><td>Public. <code>{ current, latest, updateAvailable, releaseUrl }</code> - what the admin panel/landing page poll for the "update available" notice. Backend-side, cached daily, anonymous (a plain request to GitHub's public releases API, not tied to any visitor). <code>latest</code>/<code>releaseUrl</code> are <code>null</code> until the first successful check, or if <code>VERSION_CHECK_ENABLED=false</code>.</td></tr>
       </table>
     </div>
 
