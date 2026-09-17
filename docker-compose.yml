@@ -48,6 +48,13 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:5000}
         VITE_SOCKET_URL: ${VITE_SOCKET_URL:-http://localhost:5000}
+        # Optional TURN server for the frontend's own ICE config. VITE_TURN_URL
+        # also widens the built Content-Security-Policy (connect-src) so a
+        # custom TURN server isn't blocked by it - see frontend/Dockerfile.
+        # Safe to leave all three unset.
+        VITE_TURN_URL: ${VITE_TURN_URL:-}
+        VITE_TURN_USERNAME: ${VITE_TURN_USERNAME:-}
+        VITE_TURN_CREDENTIAL: ${VITE_TURN_CREDENTIAL:-}
     restart: unless-stopped
     ports:
       - "${BIND_ADDR:-0.0.0.0}:${FRONTEND_PORT:-5173}:80"

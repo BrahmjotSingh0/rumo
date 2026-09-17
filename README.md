@@ -119,6 +119,10 @@ Either way, once it's up:
 
 The Postgres schema is applied automatically on first run (Docker only initializes an empty data volume, so this doesn't rerun on an existing one). If you're upgrading an existing instance from before a given release added a column, apply the difference by hand, e.g. for the "hide the admin page" setting: `ALTER TABLE branding_settings ADD COLUMN IF NOT EXISTS admin_page_enabled BOOLEAN DEFAULT true;`.
 
+If `ufw` (Linux) or Windows Firewall is already active on the machine, the installer adds an allow rule for whichever ports this deployment actually uses - it never enables a firewall that wasn't already on, and never touches or removes any of your existing rules.
+
+**Sharing a machine with other things:** Rumo's containers, volumes, and network are all namespaced under this project alone (Docker Compose prefixes them from the directory name), so they don't collide with other Docker projects. Postgres is never exposed to the host at all - only the backend container can reach it. The only host ports touched are `BACKEND_PORT`/`FRONTEND_PORT` (5000/5173 by default, override either in `.env` if something else already uses them) and, only in `--domain` mode, 80/443 for Caddy - which does need to be free if another reverse proxy is already bound to them.
+
 > Camera/microphone access requires HTTPS in the browser (Chrome and Firefox both block `getUserMedia` on plain HTTP), except on `localhost`. The `--domain` flag above handles this for you; without it, you'll need your own reverse proxy with a TLS certificate in front of `frontend`/`backend`, with `CORS_ORIGIN`, `VITE_API_URL`, and `VITE_SOCKET_URL` pointed at the public HTTPS URLs.
 
 ## Manual setup (without Docker)
@@ -252,7 +256,8 @@ rumo/
 - Room PINs are bcrypt-hashed at rest, never stored or logged in plain text.
 - Host-rejoin tokens are signed with `HOST_TOKEN_SECRET` (auto-generated at boot if you don't set one); see [How hosting works](#how-hosting-works).
 - API rate limiting is on by default (`RATE_LIMIT_*` in `backend/.env.example`).
-- `helmet` sets standard security headers. Content-Security-Policy is left off by default because it's easy to break WebRTC/media/websocket connections with an overly strict one; if you enable it, test screen share, camera, and chat afterward.
+- The backend's `helmet` middleware sets a strict CSP - safe there since that server only ever returns JSON and static uploads, never the app itself.
+- The frontend image (`frontend/nginx.conf`) also sets a CSP, `X-Content-Type-Options`, `Referrer-Policy`, and a `Permissions-Policy` that blocks features Rumo never uses. The CSP's `connect-src` is filled in at Docker build time from your own `VITE_API_URL`/`VITE_SOCKET_URL` (see `frontend/Dockerfile`), so it matches whatever backend origin you actually configured instead of a hardcoded guess. **If you change those URLs or add a custom TURN server, rebuild the frontend image and test a real call afterward** (screen share, camera, chat, and ideally a device on a different/restrictive network to confirm TURN still connects) - a CSP mismatch fails silently rather than with an obvious error.
 - No cookies or sessions are used (guest model, see [How hosting works](#how-hosting-works)), so `CORS_CREDENTIALS` defaults to `false`.
 - TLS is handled by the optional Caddy reverse proxy (`./install.sh --domain ...`) or your own proxy in front; the app itself doesn't terminate HTTPS.
 - The admin panel (`/admin`, `/api/settings/*`) is gated by `ADMIN_SETUP_TOKEN`, compared with a timing-safe check. Leave it unset to disable branding changes entirely. The "Admin page enabled" toggle in the panel only hides the form behind a lock screen for people without the token - it doesn't change what the token check itself allows.

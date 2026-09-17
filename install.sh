@@ -146,6 +146,25 @@ fi
 
 ADMIN_TOKEN=$(grep "^ADMIN_SETUP_TOKEN=" .env | cut -d= -f2-)
 
+# --- Firewall (best-effort, ufw only) ---------------------------------------
+# Only acts if ufw is both installed AND already enabled - if a self-hoster
+# hasn't turned ufw on, this leaves it alone rather than enabling it for them
+# (ufw's default-deny policy could lock out SSH if 22 isn't already allowed).
+# Only ever adds allow rules for the ports this deployment needs; never
+# touches or removes anything else.
+if command -v ufw &> /dev/null && sudo ufw status 2>/dev/null | grep -q "^Status: active"; then
+  echo "ufw is active - opening the ports this deployment needs..."
+  if [ -n "$DOMAIN_VALUE" ]; then
+    sudo ufw allow 80/tcp comment "Rumo HTTP/ACME" || true
+    sudo ufw allow 443/tcp comment "Rumo HTTPS" || true
+  else
+    BACKEND_PORT_VALUE=$(grep "^BACKEND_PORT=" .env 2>/dev/null | cut -d= -f2-)
+    FRONTEND_PORT_VALUE=$(grep "^FRONTEND_PORT=" .env 2>/dev/null | cut -d= -f2-)
+    sudo ufw allow "${BACKEND_PORT_VALUE:-5000}/tcp" comment "Rumo backend" || true
+    sudo ufw allow "${FRONTEND_PORT_VALUE:-5173}/tcp" comment "Rumo frontend" || true
+  fi
+fi
+
 # --- Build and start ---------------------------------------------------------
 
 $DOCKER_COMPOSE "${COMPOSE_PROFILE[@]}" up -d --build

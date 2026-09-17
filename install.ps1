@@ -93,6 +93,41 @@ if ($domainValue) {
 
 $adminToken = Get-EnvVar "ADMIN_SETUP_TOKEN"
 
+# --- Firewall (best-effort, Windows Firewall only) --------------------------
+# Only ever adds allow rules for the ports this deployment needs, and only if
+# the Windows Firewall service is actually running - never touches or
+# removes anything else. Adding a rule needs an elevated (Administrator)
+# PowerShell; if this isn't one, it's skipped with a note rather than
+# re-launching itself elevated.
+$firewallService = Get-Service -Name "MpsSvc" -ErrorAction SilentlyContinue
+if ($firewallService -and $firewallService.Status -eq "Running") {
+    $isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if ($isElevated) {
+        $portsToOpen = @()
+        if ($domainValue) {
+            $portsToOpen = @(@{Port = 80; Name = "Rumo HTTP/ACME"}, @{Port = 443; Name = "Rumo HTTPS"})
+        } else {
+            $backendPort = Get-EnvVar "BACKEND_PORT"
+            $frontendPort = Get-EnvVar "FRONTEND_PORT"
+            if ([string]::IsNullOrEmpty($backendPort)) { $backendPort = 5000 }
+            if ([string]::IsNullOrEmpty($frontendPort)) { $frontendPort = 5173 }
+            $portsToOpen = @(@{Port = [int]$backendPort; Name = "Rumo backend"}, @{Port = [int]$frontendPort; Name = "Rumo frontend"})
+        }
+        Write-Host "Windows Firewall is running - opening the ports this deployment needs..."
+        foreach ($p in $portsToOpen) {
+            if (-not (Get-NetFirewallRule -DisplayName $p.Name -ErrorAction SilentlyContinue)) {
+                try {
+                    New-NetFirewallRule -DisplayName $p.Name -Direction Inbound -Protocol TCP -LocalPort $p.Port -Action Allow -ErrorAction Stop | Out-Null
+                } catch {
+                    Write-Host "  Could not add a firewall rule for port $($p.Port): $_"
+                }
+            }
+        }
+    } else {
+        Write-Host "Skipping firewall rules (this PowerShell isn't running as Administrator) - open the needed ports yourself if Windows Firewall blocks them."
+    }
+}
+
 docker compose @composeProfileArgs up -d --build
 
 Write-Host ""
