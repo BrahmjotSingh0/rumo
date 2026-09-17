@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Rumo doesn't have tagged releases yet. Only the latest commit on `main` is supported. If you're running an older checkout, please update and confirm the issue still exists before reporting it.
+Only the latest tagged release and the latest commit on `main` are supported. If you're running an older release, please update and confirm the issue still exists before reporting it.
 
 ## Reporting a vulnerability
 
