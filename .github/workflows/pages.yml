@@ -1,0 +1,46 @@
+name: Deploy docs to GitHub Pages
+
+# Only runs when docs/ actually changes (or on manual dispatch) - the
+# previous "deploy from branch" setup rebuilt on every push to main
+# regardless of what changed. Doesn't cost anything either way (public
+# repos get unlimited free Actions minutes), but there's no reason to
+# rebuild a static docs site for a change that isn't in it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment at a time; don't cancel one that's already
+# rolling out just because another push came in.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload docs/ as the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './docs'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
